@@ -1,0 +1,533 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { 
+  LayoutDashboard, 
+  Briefcase, 
+  CheckSquare, 
+  Calendar, 
+  FileText, 
+  Plus, 
+  Settings, 
+  Download, 
+  Upload,
+  Trash2, 
+  Moon, 
+  Sun,
+  Menu,
+  X,
+  FileCode,
+  ChevronRight,
+  Save,
+  Eye
+} from 'lucide-react';
+
+const STORAGE_KEY = 'awspace_data_v2';
+const MAROON = '#800000';
+
+const defaultRoles = [
+  { id: 'global', name: 'Global View', color: '#4b5563', icon: 'LayoutDashboard' },
+  { id: 'role-1', name: 'Operations', color: '#800000', icon: 'Briefcase' }
+];
+
+const App = () => {
+  const [activeRole, setActiveRole] = useState('global');
+  const [roles, setRoles] = useState(defaultRoles);
+  const [tasks, setTasks] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [notes, setNotes] = useState([]); 
+  const [activeNoteId, setActiveNoteId] = useState(null);
+  const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [noteEditMode, setNoteEditMode] = useState(true);
+  const fileInputRef = useRef(null);
+
+  // --- Persistence ---
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        setRoles(data.roles || defaultRoles);
+        setTasks(data.tasks || []);
+        setEvents(data.events || []);
+        setNotes(data.notes || []);
+      } catch (e) { console.error("Load error", e); }
+    }
+    if (window.innerWidth >= 768) {
+      setSidebarOpen(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ roles, tasks, events, notes }));
+  }, [roles, tasks, events, notes]);
+
+  // --- Filters ---
+  const filteredTasks = useMemo(() => activeRole === 'global' ? tasks : tasks.filter(t => t.roleId === activeRole), [tasks, activeRole]);
+  const filteredEvents = useMemo(() => activeRole === 'global' ? events : events.filter(e => e.roleId === activeRole), [events, activeRole]);
+  const filteredNotes = useMemo(() => activeRole === 'global' ? notes : notes.filter(n => n.roleId === activeRole), [notes, activeRole]);
+  const currentRoleData = useMemo(() => roles.find(r => r.id === activeRole), [roles, activeRole]);
+  const activeNote = useMemo(() => notes.find(n => n.id === activeNoteId), [notes, activeNoteId]);
+
+  // --- Actions ---
+  const addTask = (text) => {
+    const roleId = activeRole === 'global' ? (roles.find(r => r.id !== 'global')?.id || 'role-1') : activeRole;
+    setTasks([...tasks, { id: Date.now().toString(), roleId, text, completed: false, createdAt: new Date().toISOString() }]);
+  };
+
+  const addEvent = (title, date) => {
+    const roleId = activeRole === 'global' ? (roles.find(r => r.id !== 'global')?.id || 'role-1') : activeRole;
+    setEvents([...events, { id: Date.now().toString(), roleId, title, date, createdAt: new Date().toISOString() }]);
+  };
+
+  const createNote = () => {
+    const roleId = activeRole === 'global' ? (roles.find(r => r.id !== 'global')?.id || 'role-1') : activeRole;
+    const newNote = {
+      id: Date.now().toString(),
+      roleId,
+      title: 'New Document',
+      content: '# New Document\nStart typing your markdown here...',
+      updatedAt: new Date().toISOString()
+    };
+    setNotes([...notes, newNote]);
+    setActiveNoteId(newNote.id);
+    setActiveTab('notes');
+  };
+
+  const updateNote = (id, field, value) => {
+    setNotes(notes.map(n => n.id === id ? { ...n, [field]: value, updatedAt: new Date().toISOString() } : n));
+  };
+
+  const deleteRole = (id) => {
+    if (id === 'global') return;
+    if (confirm(`Delete entire workspace "${roles.find(r => r.id === id)?.name}"? This deletes all associated tasks and notes.`)) {
+      setRoles(roles.filter(r => r.id !== id));
+      setTasks(tasks.filter(t => t.roleId !== id));
+      setEvents(events.filter(e => e.roleId !== id));
+      setNotes(notes.filter(n => n.roleId !== id));
+      setActiveRole('global');
+    }
+  };
+
+  // --- Syncing Logic ---
+  const generateMarkdown = () => {
+    let md = `# Atomic Workspace Backup - ${new Date().toLocaleDateString()}\n\n`;
+    roles.forEach(role => {
+      if (role.id === 'global') return;
+      md += `## WORKSPACE: ${role.name}\nID: ${role.id}\nCOLOR: ${role.color}\n\n### TASKS\n`;
+      tasks.filter(t => t.roleId === role.id).forEach(t => md += `- [${t.completed ? 'x' : ' '}] ${t.text}\n`);
+      md += `\n### CALENDAR\n`;
+      events.filter(e => e.roleId === role.id).forEach(e => md += `- ${e.date}: ${e.title}\n`);
+      md += `\n### NOTES & DOCUMENTS\n`;
+      notes.filter(n => n.roleId === role.id).forEach(n => md += `#### ${n.title}\n${n.content}\n\n---\n`);
+      md += `\n\n`;
+    });
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `atomic_workspace_full_sync.md`;
+    a.click();
+  };
+
+  const handleImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target.result;
+      parseMarkdownImport(text);
+    };
+    reader.readAsText(file);
+  };
+
+  const parseMarkdownImport = (text) => {
+    // Simple parser for the specific format generated above
+    try {
+      const workspaceSections = text.split('## WORKSPACE: ').slice(1);
+      const newRoles = [{ ...defaultRoles[0] }];
+      const newTasks = [];
+      const newEvents = [];
+      const newNotes = [];
+
+      workspaceSections.forEach(section => {
+        const lines = section.split('\n');
+        const name = lines[0].trim();
+        const idMatch = section.match(/ID: (role-\d+)/);
+        const colorMatch = section.match(/COLOR: (#\w+)/);
+        
+        const roleId = idMatch ? idMatch[1] : `role-${Date.now()}-${Math.random()}`;
+        const roleColor = colorMatch ? colorMatch[1] : MAROON;
+
+        newRoles.push({ id: roleId, name, color: roleColor, icon: 'Briefcase' });
+
+        // Parse Tasks
+        const taskPart = section.split('### TASKS')[1]?.split('### CALENDAR')[0];
+        if (taskPart) {
+          taskPart.split('\n').forEach(line => {
+            const m = line.match(/- \[(x| )\] (.*)/);
+            if (m) newTasks.push({ id: Math.random().toString(), roleId, text: m[2], completed: m[1] === 'x', createdAt: new Date().toISOString() });
+          });
+        }
+
+        // Parse Calendar
+        const calPart = section.split('### CALENDAR')[1]?.split('### NOTES & DOCUMENTS')[0];
+        if (calPart) {
+          calPart.split('\n').forEach(line => {
+            const m = line.match(/- (\d{4}-\d{2}-\d{2}): (.*)/);
+            if (m) newEvents.push({ id: Math.random().toString(), roleId, title: m[2], date: m[1], createdAt: new Date().toISOString() });
+          });
+        }
+
+        // Parse Notes
+        const notePart = section.split('### NOTES & DOCUMENTS')[1];
+        if (notePart) {
+          const individualNotes = notePart.split('#### ').slice(1);
+          individualNotes.forEach(nContent => {
+            const nLines = nContent.split('\n');
+            const title = nLines[0].trim();
+            const content = nLines.slice(1).join('\n').split('---')[0].trim();
+            newNotes.push({ id: Math.random().toString(), roleId, title, content, updatedAt: new Date().toISOString() });
+          });
+        }
+      });
+
+      if (confirm("Importing will replace your current session data. Proceed?")) {
+        setRoles(newRoles);
+        setTasks(newTasks);
+        setEvents(newEvents);
+        setNotes(newNotes);
+        setActiveRole('global');
+      }
+    } catch (err) {
+      console.error("Parse Error", err);
+    }
+  };
+
+  // --- Components ---
+  const NavItem = ({ id, label, icon: Icon, color }) => (
+    <div className="group flex items-center">
+      <button 
+        onClick={() => { setActiveRole(id); if (window.innerWidth < 768) setSidebarOpen(false); }}
+        className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+          activeRole === id ? 'bg-white/10 text-white border-l-4 shadow-sm' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
+        }`}
+        style={{ borderLeftColor: activeRole === id ? color : 'transparent' }}
+      >
+        <Icon size={18} style={{ color: activeRole === id ? color : 'inherit' }} />
+        <span className="text-sm font-medium">{label}</span>
+      </button>
+      {id !== 'global' && (
+        <button onClick={() => deleteRole(id)} className="opacity-0 group-hover:opacity-40 hover:!opacity-100 p-2 text-rose-500 transition-all">
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+
+  const MobileTabButton = ({ id, icon: Icon, label }) => (
+    <button 
+      onClick={() => setActiveTab(id)}
+      className={`flex flex-col items-center justify-center flex-1 py-1 transition-all ${
+        activeTab === id ? 'text-[#800000] dark:text-rose-400' : 'text-slate-400'
+      }`}
+    >
+      <Icon size={20} />
+      <span className="text-[10px] font-black uppercase mt-1">{label}</span>
+    </button>
+  );
+
+  return (
+    <div className={`flex h-screen overflow-hidden ${darkMode ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
+      
+      {isSidebarOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      <aside className={`
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} 
+        fixed md:relative md:translate-x-0 z-50
+        w-64 h-full bg-slate-900 flex flex-col transition-transform duration-300 ease-in-out shadow-2xl md:shadow-none
+      `}>
+        <div className="p-6">
+          <div className="flex flex-col items-center gap-2 mb-8">
+            <div className="w-12 h-12 bg-[#800000] rounded-xl flex items-center justify-center shadow-lg border border-white/10">
+               <img src="logo.svg" alt="AW" className="w-10 h-10" onError={(e) => e.target.style.display = 'none'} />
+            </div>
+            <h1 className="text-sm font-black text-white tracking-[0.2em] uppercase mt-2">Atomic Workspace</h1>
+          </div>
+
+          <nav className="space-y-1">
+            <NavItem id="global" label="Dashboard" icon={LayoutDashboard} color="#cbd5e1" />
+            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-6 mb-2 px-4">Your Workspaces</div>
+            <div className="max-h-[40vh] overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+              {roles.filter(r => r.id !== 'global').map(role => (
+                <NavItem key={role.id} id={role.id} label={role.name} icon={Briefcase} color={role.color} />
+              ))}
+            </div>
+            <button 
+              onClick={() => {
+                const name = prompt("Enter Workspace Name:");
+                if (name) setRoles([...roles, { id: `role-${Date.now()}`, name, color: `#${Math.floor(Math.random()*16777215).toString(16)}`, icon: 'Briefcase' }]);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 mt-4 text-xs font-bold text-[#800000] bg-white/5 rounded-lg hover:bg-white/10 transition-all"
+            >
+              <Plus size={16} /> New Workspace
+            </button>
+          </nav>
+        </div>
+
+        <div className="mt-auto p-4 border-t border-white/5 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={generateMarkdown} className="flex items-center justify-center gap-2 py-3 bg-[#800000] text-white rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-rose-900 transition-all shadow-xl">
+              <Download size={14} /> Export
+            </button>
+            <button onClick={() => fileInputRef.current.click()} className="flex items-center justify-center gap-2 py-3 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase tracking-wider hover:bg-slate-700 transition-all">
+              <Upload size={14} /> Import
+            </button>
+            <input type="file" ref={fileInputRef} onChange={handleImport} className="hidden" accept=".md" />
+          </div>
+          
+          <div className="flex justify-between px-2 pt-2">
+            <button onClick={() => setDarkMode(!darkMode)} className="text-slate-500 hover:text-white transition-colors">
+              {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-500 hover:text-white">
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-950 relative">
+        <header className="h-16 flex items-center justify-between px-4 md:px-6 border-b border-slate-200 dark:border-slate-800 shrink-0">
+          <div className="flex items-center gap-2 md:gap-4 overflow-hidden">
+             <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg shrink-0">
+               <Menu size={20} />
+             </button>
+             <h2 className="font-black text-slate-800 dark:text-white uppercase tracking-tight text-xs md:text-sm flex items-center gap-2 truncate">
+                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: currentRoleData?.color }}></div>
+                <span className="truncate">{currentRoleData?.name}</span>
+             </h2>
+          </div>
+          
+          <div className="hidden md:flex bg-slate-100 dark:bg-slate-900 p-1 rounded-xl">
+            {['dashboard', 'tasks', 'calendar', 'notes'].map(t => (
+              <button 
+                key={t} onClick={() => setActiveTab(t)}
+                className={`px-4 py-1.5 text-[10px] font-black rounded-lg transition-all ${activeTab === t ? 'bg-white dark:bg-slate-800 text-[#800000] dark:text-rose-400 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                {t.toUpperCase()}
+              </button>
+            ))}
+          </div>
+          <div className="md:hidden w-8"></div>
+        </header>
+
+        <div className="flex-1 overflow-hidden relative">
+          {activeTab === 'dashboard' && (
+            <div className="h-full overflow-y-auto p-4 md:p-10 space-y-6 md:space-y-8 pb-20 md:pb-10">
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
+                  <div className="bg-white dark:bg-slate-900 p-5 md:p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Urgent Tasks</h3>
+                    <div className="space-y-3">
+                      {filteredTasks.filter(t => !t.completed).length === 0 && <div className="text-xs text-slate-400 italic">None pending</div>}
+                      {filteredTasks.filter(t => !t.completed).slice(0, 5).map(t => (
+                        <div key={t.id} className="flex items-center gap-3 text-sm">
+                          <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: roles.find(r => r.id === t.roleId)?.color }}></div>
+                          <span className="truncate">{t.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-5 md:p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Calendar</h3>
+                    <div className="space-y-3">
+                      {filteredEvents.length === 0 && <div className="text-xs text-slate-400 italic">No events</div>}
+                      {filteredEvents.slice(0, 5).map(e => (
+                        <div key={e.id} className="flex justify-between text-sm gap-2">
+                          <span className="font-medium truncate">{e.title}</span>
+                          <span className="text-[10px] text-slate-400 whitespace-nowrap">{e.date}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-5 md:p-6 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Latest Notes</h3>
+                    <div className="space-y-3">
+                      {filteredNotes.length === 0 && <div className="text-xs text-slate-400 italic">No notes</div>}
+                      {filteredNotes.slice(0, 5).map(n => (
+                        <div key={n.id} onClick={() => { setActiveNoteId(n.id); setActiveTab('notes'); }} className="flex items-center gap-2 text-sm cursor-pointer hover:text-[#800000]">
+                          <FileText size={14} className="text-slate-300 shrink-0" />
+                          <span className="truncate">{n.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+               </div>
+
+               <div className="bg-gradient-to-br from-[#800000] to-[#500000] text-white p-6 md:p-10 rounded-[2rem] flex flex-col md:flex-row items-center justify-between gap-6 md:gap-8 shadow-2xl relative overflow-hidden">
+                  <div className="relative z-10 text-center md:text-left">
+                    <h3 className="text-2xl md:text-3xl font-black mb-2 tracking-tighter">ONE DRIVE SYNC</h3>
+                    <p className="text-rose-200/60 text-[10px] md:text-xs font-bold uppercase tracking-widest italic">Use Export to save to your OneSync folder</p>
+                  </div>
+                  <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto z-10">
+                    <button onClick={() => fileInputRef.current.click()} className="bg-rose-900/40 border border-white/20 text-white px-8 py-4 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-rose-800 transition-all">
+                      Load from File
+                    </button>
+                    <button onClick={generateMarkdown} className="bg-white text-[#800000] px-8 py-4 rounded-xl font-black uppercase text-xs tracking-widest hover:scale-105 transition-all shadow-xl">
+                      Save to OneDrive
+                    </button>
+                  </div>
+               </div>
+            </div>
+          )}
+
+          {activeTab === 'tasks' && (
+            <div className="h-full overflow-y-auto p-4 md:p-10 max-w-3xl mx-auto space-y-6 pb-24 md:pb-10">
+              <div className="relative group">
+                <input 
+                  type="text" placeholder="New task..." 
+                  className="w-full bg-white dark:bg-slate-900 border-2 border-slate-100 dark:border-slate-800 rounded-2xl px-5 md:px-6 py-4 md:py-5 pr-16 focus:outline-none focus:border-[#800000] transition-all shadow-sm"
+                  onKeyDown={(e) => { if (e.key === 'Enter' && e.target.value) { addTask(e.target.value); e.target.value = ''; }}}
+                />
+                <div className="hidden md:block absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-slate-50 dark:bg-slate-800 rounded-lg text-slate-300 text-[10px] font-bold uppercase">Enter</div>
+              </div>
+              <div className="space-y-2">
+                {filteredTasks.length === 0 && <div className="text-center py-20 opacity-20 italic text-sm">No tasks active in this role.</div>}
+                {filteredTasks.map(t => (
+                  <div key={t.id} className="flex items-center justify-between p-4 md:p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 group hover:shadow-md transition-all">
+                    <div className="flex items-center gap-3 md:gap-4 flex-1 overflow-hidden">
+                      <button onClick={() => setTasks(tasks.map(x => x.id === t.id ? {...x, completed: !x.completed} : x))} className={`w-6 h-6 md:w-7 md:h-7 rounded-lg border-2 flex items-center justify-center transition-all shrink-0 ${t.completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-200 dark:border-slate-700'}`}>
+                        {t.completed && <CheckSquare size={16} />}
+                      </button>
+                      <div className="flex flex-col truncate">
+                         <span className={`text-sm font-bold truncate ${t.completed ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200'}`}>{t.text}</span>
+                         {activeRole === 'global' && <span className="text-[9px] font-black uppercase" style={{ color: roles.find(r => r.id === t.roleId)?.color }}>{roles.find(r => r.id === t.roleId)?.name}</span>}
+                      </div>
+                    </div>
+                    <button onClick={() => setTasks(tasks.filter(x => x.id !== t.id))} className="md:opacity-0 group-hover:opacity-100 p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all shrink-0"><Trash2 size={18} /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'calendar' && (
+            <div className="h-full overflow-y-auto p-4 md:p-10 max-w-3xl mx-auto space-y-6 pb-24 md:pb-10">
+              <div className="bg-white dark:bg-slate-900 p-6 md:p-8 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm flex flex-col gap-4 md:gap-6">
+                 <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Schedule Event</h3>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input id="ev-t" placeholder="Event Name" className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none focus:ring-2 focus:ring-[#800000] text-sm" />
+                    <input id="ev-d" type="date" className="bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none focus:ring-2 focus:ring-[#800000] text-sm" />
+                 </div>
+                 <button onClick={() => {
+                    const t = document.getElementById('ev-t'); const d = document.getElementById('ev-d');
+                    if(t.value && d.value) { addEvent(t.value, d.value); t.value=''; d.value=''; }
+                 }} className="bg-[#800000] text-white py-4 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-rose-900 shadow-lg transition-colors">Add to Schedule</button>
+              </div>
+              <div className="space-y-3 pt-4">
+                 {filteredEvents.length === 0 && <div className="text-center py-20 opacity-20 italic text-sm">No events scheduled.</div>}
+                 {filteredEvents.sort((a,b) => a.date.localeCompare(b.date)).map(e => (
+                   <div key={e.id} className="flex items-center gap-4 md:gap-8 p-4 md:p-6 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 group">
+                     <div className="text-center w-12 md:w-14 border-r border-slate-100 dark:border-slate-800 pr-4 md:pr-8 shrink-0">
+                       <div className="text-[9px] md:text-[10px] font-black text-[#800000] uppercase">{new Date(e.date).toLocaleString('default', {month:'short'})}</div>
+                       <div className="text-xl md:text-2xl font-black">{new Date(e.date).getUTCDate()}</div>
+                     </div>
+                     <div className="flex-1 overflow-hidden">
+                        <div className="font-bold text-slate-700 dark:text-slate-200 text-sm md:text-base truncate">{e.title}</div>
+                        {activeRole === 'global' && <div className="text-[9px] font-black uppercase opacity-50 tracking-tighter truncate">{roles.find(r => r.id === e.roleId)?.name}</div>}
+                     </div>
+                     <button onClick={() => setEvents(events.filter(x => x.id !== e.id))} className="md:opacity-0 group-hover:opacity-100 p-2 text-slate-300 hover:text-rose-500 transition-all shrink-0"><Trash2 size={18} /></button>
+                   </div>
+                 ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'notes' && (
+            <div className="h-full flex flex-col md:flex-row overflow-hidden pb-16 md:pb-0">
+               <div className={`w-full md:w-80 h-full border-r border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 p-4 space-y-4 overflow-y-auto ${activeNoteId && window.innerWidth < 768 ? 'hidden' : 'block'}`}>
+                  <button onClick={createNote} className="w-full flex items-center justify-center gap-2 p-4 bg-white dark:bg-slate-900 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-slate-400 hover:text-[#800000] hover:border-[#800000] transition-all group font-black text-[10px] tracking-widest uppercase">
+                    <Plus size={18} /> New Document
+                  </button>
+                  <div className="space-y-2">
+                    {filteredNotes.length === 0 && <div className="text-center py-10 opacity-20 italic text-xs">No documents yet.</div>}
+                    {filteredNotes.map(n => (
+                      <div 
+                        key={n.id} 
+                        onClick={() => setActiveNoteId(n.id)}
+                        className={`p-4 rounded-xl cursor-pointer border transition-all ${activeNoteId === n.id ? 'bg-white dark:bg-slate-900 border-[#800000] shadow-md' : 'bg-white/50 border-transparent hover:bg-white dark:hover:bg-slate-900 opacity-70 hover:opacity-100'}`}
+                      >
+                         <h4 className="text-sm font-bold truncate pr-4">{n.title}</h4>
+                         <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">{n.content.replace(/[#*`]/g, '')}</p>
+                         <div className="mt-3 flex justify-between items-center">
+                            <span className="text-[9px] font-black uppercase text-slate-300 tracking-tighter">{new Date(n.updatedAt).toLocaleDateString()}</span>
+                            {activeRole === 'global' && <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: roles.find(r => r.id === n.roleId)?.color }}></div>}
+                         </div>
+                      </div>
+                    ))}
+                  </div>
+               </div>
+
+               <div className={`flex-1 h-full bg-white dark:bg-slate-950 p-4 md:p-6 flex flex-col overflow-hidden ${!activeNoteId && window.innerWidth < 768 ? 'hidden' : 'block'}`}>
+                  {activeNote ? (
+                    <>
+                      <div className="flex items-center justify-between mb-4 md:mb-6 border-b pb-4 border-slate-100 dark:border-slate-800">
+                         <div className="flex items-center gap-2 flex-1 mr-2">
+                            <button onClick={() => setActiveNoteId(null)} className="md:hidden p-2 -ml-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
+                               <X size={18} />
+                            </button>
+                            <input 
+                              value={activeNote.title} 
+                              onChange={(e) => updateNote(activeNote.id, 'title', e.target.value)}
+                              className="text-lg font-black bg-transparent border-none focus:ring-0 w-full p-0 truncate"
+                            />
+                         </div>
+                         <div className="flex gap-1 md:gap-2 shrink-0">
+                           <button onClick={() => setNoteEditMode(!noteEditMode)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400">
+                             {noteEditMode ? <Eye size={18} /> : <FileCode size={18} />}
+                           </button>
+                           <button onClick={() => { if(confirm("Delete document?")) setNotes(notes.filter(n => n.id !== activeNoteId)); setActiveNoteId(null); }} className="p-2 hover:bg-rose-50 text-rose-500 rounded-lg">
+                             <Trash2 size={18} />
+                           </button>
+                         </div>
+                      </div>
+                      <div className="flex-1 flex flex-col overflow-hidden">
+                        {noteEditMode ? (
+                          <textarea 
+                            value={activeNote.content}
+                            onChange={(e) => updateNote(activeNote.id, 'content', e.target.value)}
+                            placeholder="Markdown supported..."
+                            className="flex-1 w-full p-4 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border-none focus:ring-0 font-mono text-sm leading-relaxed custom-scrollbar resize-none"
+                          />
+                        ) : (
+                          <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 dark:bg-slate-900/50 rounded-2xl max-w-none">
+                             <pre className="whitespace-pre-wrap font-sans text-sm">{activeNote.content}</pre>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center opacity-20 italic">
+                       <FileText size={48} className="mb-4" />
+                       <p className="text-sm">Select or create a document.</p>
+                    </div>
+                  )}
+               </div>
+            </div>
+          )}
+        </div>
+
+        <div className="md:hidden h-16 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between px-2 shrink-0 z-10">
+          <MobileTabButton id="dashboard" icon={LayoutDashboard} label="Home" />
+          <MobileTabButton id="tasks" icon={CheckSquare} label="Tasks" />
+          <MobileTabButton id="calendar" icon={Calendar} label="Plan" />
+          <MobileTabButton id="notes" icon={FileText} label="Docs" />
+        </div>
+      </main>
+    </div>
+  );
+};
+
+export default App;
