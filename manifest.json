@@ -1,0 +1,17 @@
+{
+  "name": "Atomic Workspace",
+  "short_name": "AWspace",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#800000",
+  "theme_color": "#800000",
+  "description": "Multi-role professional workspace with markdown sync.",
+  "icons": [
+    {
+      "src": "logo.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
