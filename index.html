@@ -19,30 +19,13 @@
     .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
-    
-    html, body, #root { 
-      height: 100%; 
-      margin: 0; 
-      padding: 0; 
-      overflow: hidden;
-    }
-
-    body { 
-      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; 
-      transition: background-color 0.3s ease; 
-    }
-
+    html, body, #root { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; transition: background-color 0.3s ease; }
     .modal-overlay { background-color: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px); }
-    
-    .app-container {
-      display: flex;
-      height: 100%;
-      width: 100%;
-    }
-
-    .mobile-nav-safe {
-      padding-bottom: env(safe-area-inset-bottom);
-    }
+    .app-container { display: flex; height: 100%; width: 100%; }
+    .mobile-nav-safe { padding-bottom: env(safe-area-inset-bottom); }
+    .auto-save-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
   </style>
 </head>
 <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
@@ -68,9 +51,9 @@
       ChevronLeft: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>,
       ChevronRight: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
       Clock: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+      Check: () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
       Eye: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
-      Edit: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
-      Alert: () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      Edit: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
     };
 
     const AtomicLogo = ({ className }) => (
@@ -83,7 +66,7 @@
       </svg>
     );
 
-    const STORAGE_KEY = 'awspace_data_v8_final';
+    const STORAGE_KEY = 'awspace_data_v9_isolated';
     const MAROON = '#800000';
 
     const App = () => {
@@ -106,6 +89,7 @@
       const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
       const [noteEditMode, setNoteEditMode] = useState(true);
       const [fileHandle, setFileHandle] = useState(null);
+      const [isAutoSaving, setIsAutoSaving] = useState(false);
 
       const fileInputRef = useRef(null);
       const [modal, setModal] = useState({ show: false, type: '', deleteId: null });
@@ -128,14 +112,27 @@
       }, []);
 
       useEffect(() => {
+        setIsAutoSaving(true);
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ roles, projects, taskLists, tasks, events, notes, darkMode }));
         if (darkMode) document.documentElement.classList.add('dark');
         else document.documentElement.classList.remove('dark');
+        const timer = setTimeout(() => setIsAutoSaving(false), 1000);
+        return () => clearTimeout(timer);
       }, [roles, projects, taskLists, tasks, events, notes, darkMode]);
 
+      // --- Filtered Data ---
       const filteredTaskLists = useMemo(() => taskLists.filter(l => l.roleId === activeRole), [taskLists, activeRole]);
       const filteredProjects = useMemo(() => projects.filter(p => p.roleId === activeRole), [projects, activeRole]);
       const activeRoleData = useMemo(() => roles.find(r => r.id === activeRole) || roles[0], [roles, activeRole]);
+
+      // --- Workspace Context Switcher ---
+      const switchWorkspace = (id) => {
+        setActiveRole(id);
+        setActiveProjectId(null); // Clear selected project
+        setActiveTaskListId(null); // Clear selected task list
+        setActiveNoteId(null); // Clear selected note
+        if (window.innerWidth < 768) setSidebarOpen(false);
+      };
 
       const parseAndImport = (text) => {
         try {
@@ -170,8 +167,9 @@
 
             const projChunks = section.split('### PROJECT: ').slice(1);
             projChunks.forEach(chunk => {
-              const projName = chunk.split(' [PID:')[0].trim();
-              const projId = chunk.match(/\[PID:(.*?)\]/)?.[1] || Math.random().toString();
+              const pHeader = chunk.split('\n')[0];
+              const projName = pHeader.split(' [PID:')[0].trim();
+              const projId = pHeader.match(/\[PID:(.*?)\]/)?.[1] || Math.random().toString();
               nProjects.push({ id: projId, roleId, name: projName });
               const noteChunks = chunk.split('#### NOTE: ').slice(1);
               noteChunks.forEach(nChunk => {
@@ -254,9 +252,7 @@
         const first = new Date(y, m, 1).getDay(), last = new Date(y, m + 1, 0).getDate();
         const days = [];
         for (let i = 0; i < first; i++) days.push({ d: null, full: null });
-        for (let i = 1; i <= last; i++) {
-          days.push({ d: i, full: `${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}` });
-        }
+        for (let i = 1; i <= last; i++) days.push({ d: i, full: `${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}` });
         return days;
       }, [currentMonth]);
 
@@ -288,11 +284,11 @@
               <h1 className="text-[10px] font-black text-white uppercase opacity-50 tracking-widest">Atomic Workspace</h1>
             </div>
             <nav className="flex-1 overflow-y-auto custom-scrollbar px-4 space-y-1">
-              <button onClick={()=>{setActiveRole('global'); if(window.innerWidth<768)setSidebarOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeRole==='global'?'bg-white/10 text-white':'text-slate-500 hover:text-slate-300'}`}><Icons.Dashboard /> <span className="text-xs font-bold uppercase">Overview</span></button>
+              <button onClick={()=>switchWorkspace('global')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeRole==='global'?'bg-white/10 text-white':'text-slate-500 hover:text-slate-300'}`}><Icons.Dashboard /> <span className="text-xs font-bold uppercase">Overview</span></button>
               <div className="pt-6 pb-2 text-[9px] font-black text-slate-600 uppercase px-4 text-center">Workspaces</div>
               {roles.filter(r=>r.id!=='global').map(role=>(
                 <div key={role.id} className="group flex items-center">
-                  <button onClick={()=>{setActiveRole(role.id); if(window.innerWidth<768)setSidebarOpen(false);}} className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeRole===role.id?'bg-white/10 text-white border-l-4':'text-slate-500 hover:text-slate-300'}`} style={{borderLeftColor:activeRole===role.id?role.color:'transparent'}}><Icons.Briefcase /> <span className="text-xs font-bold truncate">{role.name}</span></button>
+                  <button onClick={()=>switchWorkspace(role.id)} className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeRole===role.id?'bg-white/10 text-white border-l-4':'text-slate-500 hover:text-slate-300'}`} style={{borderLeftColor:activeRole===role.id?role.color:'transparent'}}><Icons.Briefcase /> <span className="text-xs font-bold truncate">{role.name}</span></button>
                   <button onClick={()=>setModal({show:true,type:'confirm-role',deleteId:role.id})} className="opacity-0 group-hover:opacity-100 p-2 text-rose-500"><Icons.X /></button>
                 </div>
               ))}
@@ -331,14 +327,14 @@
 
               {activeTab==='tasks'&&(
                 <div className="h-full flex flex-col overflow-hidden">
-                  <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex gap-2 overflow-x-auto shrink-0 bg-white dark:bg-slate-950">{filteredTaskLists.map(l=>(<div key={l.id} className="flex items-center gap-1 group shrink-0"><button onClick={()=>setActiveTaskListId(l.id)} className={`px-4 py-2 text-[10px] font-black rounded-lg transition-all ${activeTaskListId===l.id?'bg-[#800000] text-white':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>{l.name.toUpperCase()}</button><button onClick={()=>setModal({show:true,type:'confirm-tasklist',deleteId:l.id})} className="p-1 text-slate-300 hover:text-rose-500 shrink-0"><Icons.X /></button></div>))}<button onClick={()=>setModal({show:true,type:'tasklist'})} className="p-2 text-[#800000] shrink-0"><Icons.Plus /></button></div>
+                  <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex gap-2 overflow-x-auto shrink-0 bg-white dark:bg-slate-950">{filteredTaskLists.map(l=>(<div key={l.id} className="flex items-center gap-1 group shrink-0"><button onClick={()=>setActiveTaskListId(l.id)} className={`px-4 py-2 text-[10px] font-black rounded-lg transition-all ${activeTaskListId===l.id?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>{l.name.toUpperCase()}</button><button onClick={()=>setModal({show:true,type:'confirm-tasklist',deleteId:l.id})} className="p-1 text-slate-300 hover:text-rose-500 shrink-0"><Icons.X /></button></div>))}<button onClick={()=>setModal({show:true,type:'tasklist'})} className="p-2 text-[#800000] shrink-0"><Icons.Plus /></button></div>
                   <div className="flex-1 overflow-y-auto p-4 md:p-12 space-y-6">{activeTaskListId?(<div className="max-w-2xl mx-auto space-y-8"><div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm space-y-4"><input type="text" id="tk-t" placeholder="Add Task..." className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none font-bold text-slate-900 dark:text-white" /><div className="flex gap-2"><input type="date" id="tk-d" className="flex-1 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none text-xs dark:text-white"/><input type="time" id="tk-h" className="w-24 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none text-xs dark:text-white"/><button onClick={()=>{const t=document.getElementById('tk-t'),d=document.getElementById('tk-d'),h=document.getElementById('tk-h'); if(t.value){setTasks([{id:Date.now().toString(),listId:activeTaskListId,text:t.value,completed:false,dueDate:d.value,dueTime:h.value},...tasks]);t.value='';d.value='';h.value='';}}} className="bg-[#800000] text-white px-6 rounded-xl font-black text-[10px] uppercase">Add</button></div></div><div className="space-y-2">{tasks.filter(t=>t.listId===activeTaskListId).map(t=>(<div key={t.id} className="flex items-center justify-between p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 group shadow-sm transition-all"><div className="flex items-center gap-4 flex-1 truncate"><button onClick={()=>setTasks(tasks.map(x=>x.id===t.id?{...x,completed:!x.completed}:x))} className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center shrink-0 ${t.completed?'bg-emerald-500 border-emerald-500 text-white':'border-slate-200'}`}><Icons.Tasks /></button><div className="flex flex-col truncate"><span className={`text-sm font-bold truncate ${t.completed?'line-through text-slate-400':''}`}>{t.text}</span>{(t.dueDate||t.dueTime)&&<span className="text-[9px] font-black text-rose-800 flex items-center gap-1 uppercase">{(t.dueDate||t.dueTime)&&<Icons.Clock />} {t.dueDate} {t.dueTime}</span>}</div></div><button onClick={()=>setTasks(tasks.filter(x=>x.id!==t.id))} className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-lg"><Icons.Trash /></button></div>))}</div></div>):<div className="h-full flex items-center justify-center italic text-slate-400">Select a Task List.</div>}</div>
                 </div>
               )}
 
               {activeTab==='calendar'&&(
                 <div className="h-full flex flex-col overflow-hidden">
-                  <div className="p-4 md:p-8 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between shrink-0 bg-white dark:bg-slate-950 gap-4"><div className="flex items-center gap-4"><button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(),currentMonth.getMonth()-1,1))} className="p-2"><Icons.ChevronLeft /></button><h3 className="text-sm font-black uppercase w-48 text-center">{currentMonth.toLocaleString('default',{month:'long',year:'numeric'})}</h3><button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(),currentMonth.getMonth()+1,1))} className="p-2"><Icons.ChevronRight /></button></div><div className="flex gap-2"><button onClick={()=>setCalendarView('month')} className={`px-4 py-2 text-[9px] font-black rounded-lg ${calendarView==='month'?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>MONTH</button><button onClick={()=>setCalendarView('agenda')} className={`px-4 py-2 text-[9px] font-black rounded-lg ${calendarView==='agenda'?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>LIST</button><button onClick={()=>{const t=prompt("Title:"),d=prompt("Date:",selectedDate); if(t&&d)setEvents([...events,{id:Date.now().toString(),roleId:activeRole,title:t,date:d}]);}} className="bg-[#800000] text-white px-6 py-2 rounded-xl text-[9px] font-black uppercase">NEW</button></div></div>
+                  <div className="p-4 md:p-8 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between shrink-0 bg-white dark:bg-slate-950 gap-4"><div className="flex items-center gap-4"><button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(),currentMonth.getMonth()-1,1))} className="p-2"><Icons.ChevronLeft /></button><h3 className="text-sm font-black uppercase w-48 text-center">{currentMonth.toLocaleString('default',{month:'long',year:'numeric'})}</h3><button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(),currentMonth.getMonth()+1,1))} className="p-2"><Icons.ChevronRight /></button></div><div className="flex gap-2"><button onClick={()=>setCalendarView('month')} className={`px-4 py-2 text-[9px] font-black rounded-lg ${calendarView==='month'?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>MONTH</button><button onClick={()=>setCalendarView('agenda')} className={`px-4 py-2 text-[9px] font-black rounded-lg ${calendarView==='agenda'?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>LIST</button><button onClick={()=>{const t=prompt("Title:"), d=prompt("Date:", selectedDate); if(t&&d)setEvents([...events,{id:Date.now().toString(),roleId:activeRole,title:t,date:d}]);}} className="bg-[#800000] text-white px-6 py-2 rounded-xl text-[9px] font-black uppercase">NEW</button></div></div>
                   <div className="flex-1 overflow-y-auto p-4 md:p-8">{calendarView==='month'?(<div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8"><div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm h-fit"><div className="grid grid-cols-7 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>(<div key={d} className="py-4 text-[9px] font-black text-slate-400 uppercase text-center">{d}</div>))}</div><div className="grid grid-cols-7">{calendarDays.map((day,idx)=>(<div key={idx} onClick={()=>day.full&&setSelectedDate(day.full)} className={`min-h-[80px] p-2 border-r border-b border-slate-100 dark:border-slate-800 last:border-r-0 cursor-pointer ${selectedDate===day.full?'bg-rose-50/50 dark:bg-rose-900/10':''}`}>{day.d&&(<> <div className={`text-xs font-black ${selectedDate===day.full?'text-[#800000]':'text-slate-400'}`}>{day.d}</div><div className="flex flex-wrap gap-1 mt-1">{events.filter(e=>e.date===day.full).map(e=>(<div key={e.id} className="w-1.5 h-1.5 rounded-full" style={{backgroundColor:roles.find(r=>r.id===e.roleId)?.color||MAROON}}></div>))}</div></>)}</div>))}</div></div><div><h4 className="text-[10px] font-black uppercase text-[#800000] border-b border-[#800000] pb-2 mb-4 tracking-widest">Plan: {selectedDate}</h4><div className="space-y-4">{events.filter(e=>e.date===selectedDate).map(e=>(<div key={e.id} className="p-5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl shadow-sm text-sm font-bold flex justify-between items-start group transition-all"><div><div>{e.title}</div><div className="text-[9px] uppercase text-slate-400 mt-1">{roles.find(r => r.id === e.roleId)?.name}</div></div><button onClick={()=>setEvents(events.filter(x=>x.id!==e.id))} className="opacity-0 group-hover:opacity-100 p-2 text-rose-500 transition-all"><Icons.Trash /></button></div>))}</div></div></div>):(<div className="max-w-2xl mx-auto space-y-4">{events.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>(<div key={e.id} className="flex items-center gap-6 p-6 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-all group"><div className="text-center w-14 border-r border-slate-100 dark:border-slate-800 pr-4 shrink-0"><div className="text-[10px] font-black text-[#800000] uppercase">{new Date(e.date).toLocaleString('default',{month:'short'})}</div><div className="text-2xl font-black text-slate-900 dark:text-white">{new Date(e.date).getUTCDate()}</div></div><div className="flex-1 truncate font-bold text-sm"><div>{e.title}</div><div className="text-[9px] uppercase text-slate-400">{roles.find(r => r.id === e.roleId)?.name}</div></div><button onClick={()=>setEvents(events.filter(x=>x.id!==e.id))} className="opacity-0 group-hover:opacity-100 p-2 text-rose-500"><Icons.Trash /></button></div>))}</div>)}</div>
                 </div>
               )}
@@ -346,7 +342,7 @@
               {activeTab==='notes'&&(
                 <div className="h-full flex flex-col overflow-hidden">
                    <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex gap-2 shrink-0 bg-white dark:bg-slate-950 overflow-x-auto">{filteredProjects.map(p=>(<div key={p.id} className="flex items-center gap-1 group shrink-0"><button onClick={()=>setActiveProjectId(p.id)} className={`px-4 py-2 text-[10px] font-black rounded-lg transition-all ${activeProjectId===p.id?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>{p.name.toUpperCase()}</button><button onClick={()=>setModal({show:true,type:'confirm-project',deleteId:p.id})} className="p-1 text-slate-300 hover:text-rose-500 shrink-0"><Icons.X /></button></div>))}<button onClick={()=>setModal({show:true,type:'project'})} className="p-2 text-[#800000] shrink-0"><Icons.Plus /></button></div>
-                   <div className="flex-1 flex flex-col md:flex-row overflow-hidden pb-16 md:pb-0">{activeProjectId?(<><div className={`w-full md:w-80 h-full border-r border-slate-100 dark:border-slate-800 p-6 space-y-4 overflow-y-auto ${activeNoteId&&window.innerWidth<768?'hidden':'block'}`}><button onClick={()=>{const id=Date.now().toString();setNotes([{id,projectId:activeProjectId,title:'New Doc',content:'# New Document'},...notes]);setActiveNoteId(id);}} className="w-full flex items-center justify-center gap-2 p-5 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[1.5rem] text-slate-400 font-black text-[10px] uppercase tracking-widest"><Icons.Plus /> New Doc</button>{notes.filter(n=>n.projectId===activeProjectId).map(n=>(<div key={n.id} onClick={()=>setActiveNoteId(n.id)} className={`p-5 rounded-2xl cursor-pointer border transition-all ${activeNoteId===n.id?'bg-white dark:bg-slate-900 border-[#800000] shadow-lg scale-105':'opacity-70 hover:opacity-100'}`}><h4 className="text-sm font-black truncate dark:text-white">{n.title}</h4></div>))}</div><div className={`flex-1 h-full bg-white dark:bg-slate-950 p-6 flex flex-col overflow-hidden ${!activeNoteId&&window.innerWidth<768?'hidden':'block'}`}>{activeNoteId?(<><div className="flex items-center justify-between mb-6 border-b pb-6 border-slate-100 dark:border-slate-800 transition-colors"><input value={notes.find(n => n.id === activeNoteId)?.title || ''} onChange={e => setNotes(notes.map(n => n.id === activeNoteId ? { ...n, title: e.target.value } : n))} className="text-2xl font-black bg-transparent border-none focus:ring-0 w-full dark:text-white" /><div className="flex gap-2"><button onClick={()=>setNoteEditMode(!noteEditMode)} className="p-3 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl">{noteEditMode?<Icons.Eye/>:<Icons.Edit/>}</button><button onClick={()=>{setNotes(notes.filter(n=>n.id!==activeNoteId));setActiveNoteId(null);}} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-xl"><Icons.Trash /></button></div></div><div className="flex-1 overflow-hidden">{noteEditMode?<textarea value={notes.find(n => n.id === activeNoteId)?.content || ''} onChange={e => setNotes(notes.map(n => n.id === activeNoteId ? { ...n, content: e.target.value } : n))} className="w-full h-full p-6 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] border-none focus:ring-0 font-mono text-sm dark:text-slate-200 resize-none custom-scrollbar" />:<div className="p-6 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] h-full overflow-y-auto"><pre className="whitespace-pre-wrap font-sans text-sm font-bold leading-relaxed">{notes.find(n=>n.id===activeNoteId)?.content}</pre></div>}</div></>):<div className="flex-1 flex flex-col items-center justify-center opacity-10 italic scale-150"><Icons.Docs /><p className="text-[10px] uppercase font-black tracking-widest mt-2">Select Doc</p></div>}</div></>):<div className="h-full flex-1 flex items-center justify-center text-slate-400 italic">Select a Project.</div>}</div>
+                   <div className="flex-1 flex flex-col md:flex-row overflow-hidden pb-16 md:pb-0">{activeProjectId?(<><div className={`w-full md:w-80 h-full border-r border-slate-100 dark:border-slate-800 p-6 space-y-4 overflow-y-auto ${activeNoteId&&window.innerWidth<768?'hidden':'block'}`}><button onClick={()=>{const id=Date.now().toString();setNotes([{id,projectId:activeProjectId,title:'New Doc',content:'# New Document'},...notes]);setActiveNoteId(id);}} className="w-full flex items-center justify-center gap-2 p-5 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[1.5rem] text-slate-400 font-black text-[10px] uppercase tracking-widest"><Icons.Plus /> New Doc</button>{notes.filter(n=>n.projectId===activeProjectId).map(n=>(<div key={n.id} onClick={()=>setActiveNoteId(n.id)} className={`p-5 rounded-2xl cursor-pointer border transition-all ${activeNoteId===n.id?'bg-white dark:bg-slate-900 border-[#800000] shadow-lg scale-105':'opacity-70 hover:opacity-100'}`}><h4 className="text-sm font-black truncate dark:text-white">{n.title}</h4></div>))}</div><div className={`flex-1 h-full bg-white dark:bg-slate-950 p-6 flex flex-col overflow-hidden ${!activeNoteId&&window.innerWidth<768?'hidden':'block'}`}>{activeNoteId?(<><div className="flex items-center justify-between mb-6 border-b pb-6 border-slate-100 dark:border-slate-800 transition-colors"><div className="flex flex-col flex-1"><input value={notes.find(n => n.id === activeNoteId)?.title || ''} onChange={e => setNotes(notes.map(n => n.id === activeNoteId ? { ...n, title: e.target.value } : n))} className="text-2xl font-black bg-transparent border-none focus:ring-0 w-full dark:text-white" /><div className={`text-[9px] font-black uppercase tracking-widest flex items-center gap-2 ${isAutoSaving ? 'text-emerald-500 auto-save-pulse' : 'text-slate-400'}`}><Icons.Check /> {isAutoSaving ? 'Local Saving...' : 'Local Synced'}</div></div><div className="flex gap-2 shrink-0"><button onClick={()=>setNoteEditMode(!noteEditMode)} className="p-3 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl">{noteEditMode?<Icons.Eye/>:<Icons.Edit/>}</button><button onClick={()=>{setNotes(notes.filter(n=>n.id!==activeNoteId));setActiveNoteId(null);}} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-xl"><Icons.Trash /></button></div></div><div className="flex-1 overflow-hidden">{noteEditMode?<textarea value={notes.find(n => n.id === activeNoteId)?.content || ''} onChange={e => setNotes(notes.map(n => n.id === activeNoteId ? { ...n, content: e.target.value } : n))} className="w-full h-full p-6 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] border-none focus:ring-0 font-mono text-sm dark:text-slate-200 resize-none custom-scrollbar" />:<div className="p-6 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] h-full overflow-y-auto"><pre className="whitespace-pre-wrap font-sans text-sm font-bold leading-relaxed">{notes.find(n=>n.id===activeNoteId)?.content}</pre></div>}</div></>):<div className="flex-1 flex flex-col items-center justify-center opacity-10 italic scale-150"><Icons.Docs /><p className="text-[10px] uppercase font-black tracking-widest mt-2">Select Doc</p></div>}</div></>):<div className="h-full flex-1 flex items-center justify-center text-slate-400 italic">Select a Project.</div>}</div>
                 </div>
               )}
             </div>
