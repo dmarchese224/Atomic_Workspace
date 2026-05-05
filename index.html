@@ -8,29 +8,35 @@
   <meta name="theme-color" content="#800000">
   <link rel="icon" type="image/svg+xml" href="logo.svg">
   
+  <!-- React & Styling -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Markdown Engine -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
   <script>
     tailwind.config = { darkMode: 'class' }
-    
-    // Configure Markdown Engine to handle single line breaks automatically
-    marked.setOptions({
-      breaks: true,
-      gfm: true,
-      headerIds: false,
-      mangle: false
-    });
   </script>
   <style>
     .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
     .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
-    html, body, #root { height: 100%; margin: 0; padding: 0; overflow: hidden; }
-    body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; transition: background-color 0.3s ease; }
+    
+    html, body, #root { 
+      height: 100%; 
+      margin: 0; 
+      padding: 0; 
+      overflow: hidden;
+    }
+
+    body { 
+      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; 
+      transition: background-color 0.3s ease; 
+    }
+
     .modal-overlay { background-color: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px); z-index: 200; }
     .app-container { display: flex; height: 100%; width: 100%; }
     .mobile-nav-safe { padding-bottom: env(safe-area-inset-bottom); }
@@ -57,6 +63,7 @@
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef } = React;
 
+    // --- ICONS ENGINE ---
     const Icons = {
       Dashboard: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
       Briefcase: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>,
@@ -93,6 +100,18 @@
     const MAROON = '#800000';
 
     const App = () => {
+      // Configuration for Markdown Engine
+      useEffect(() => {
+        if (typeof marked !== 'undefined') {
+          marked.setOptions({
+            breaks: true,
+            gfm: true,
+            headerIds: false,
+            mangle: false
+          });
+        }
+      }, []);
+
       const [activeRole, setActiveRole] = useState('global');
       const [roles, setRoles] = useState([{ id: 'global', name: 'Global Overview', color: '#4b5563' }]);
       const [projects, setProjects] = useState([]);
@@ -115,6 +134,18 @@
       const [modal, setModal] = useState({ show: false, type: '', deleteId: null });
       const [modalInput, setModalInput] = useState('');
 
+      // State for Task Inputs
+      const [newTaskText, setNewTaskText] = useState('');
+      const [newTaskDate, setNewTaskDate] = useState('');
+      const [newTaskTime, setNewTaskTime] = useState('');
+
+      // Service Worker registration
+      useEffect(() => {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW fail', err));
+        }
+      }, []);
+
       useEffect(() => {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
@@ -136,8 +167,8 @@
         localStorage.setItem(STORAGE_KEY, JSON.stringify({ roles, projects, taskLists, tasks, events, notes, darkMode }));
         if (darkMode) document.documentElement.classList.add('dark');
         else document.documentElement.classList.remove('dark');
-        const t = setTimeout(() => setIsAutoSaving(false), 600);
-        return () => clearTimeout(t);
+        const timer = setTimeout(() => setIsAutoSaving(false), 800);
+        return () => clearTimeout(timer);
       }, [roles, projects, taskLists, tasks, events, notes, darkMode]);
 
       const filteredTaskLists = useMemo(() => taskLists.filter(l => l.roleId === activeRole), [taskLists, activeRole]);
@@ -155,39 +186,44 @@
             const roleId = roleHeader.match(/\[ID:(.*?)\]/)?.[1] || Date.now().toString();
             const roleName = roleHeader.split(' [ID:')[0].trim();
             nRoles.push({ id: roleId, name: roleName, color: MAROON });
-            const calPart = section.split('### CALENDAR')[1]?.split('###')[0];
-            calPart?.split('\n').forEach(line => {
-              const m = line.match(/- (\d{4}-\d{2}-\d{2}): (.*)/);
-              if (m) nEvents.push({ id: Math.random().toString(), roleId, title: m[2].trim(), date: m[1] });
-            });
-            const listSections = section.split('### LIST: ').slice(1);
-            listSections.forEach(lBlock => {
-              const lHeader = lBlock.split('\n')[0];
+            
+            const calMatch = section.split('### CALENDAR');
+            if(calMatch[1]) {
+              const calPart = calMatch[1].split('###')[0];
+              calPart.split('\n').forEach(line => {
+                const m = line.match(/- (\d{4}-\d{2}-\d{2}): (.*)/);
+                if (m) nEvents.push({ id: Math.random().toString(), roleId, title: m[2].trim(), date: m[1] });
+              });
+            }
+
+            const listChunks = section.split('### LIST: ').slice(1);
+            listChunks.forEach(chunk => {
+              const lHeader = chunk.split('\n')[0];
               const listName = lHeader.split(' [LID:')[0].trim();
               const listId = lHeader.match(/\[LID:(.*?)\]/)?.[1] || Math.random().toString();
               nTaskLists.push({ id: listId, roleId, name: listName });
-              lBlock.split('\n').forEach(line => {
+              chunk.split('\n').forEach(line => {
                 const tm = line.match(/- \[(x| )\] (.*?) \|D:(.*?)\|T:(.*?)\|/);
                 if (tm) nTasks.push({ id: Math.random().toString(), listId, text: tm[2].trim(), completed: tm[1] === 'x', dueDate: tm[3], dueTime: tm[4] });
               });
             });
-            const projSections = section.split('### PROJECT: ').slice(1);
-            projSections.forEach(pBlock => {
-              const pHeader = pBlock.split('\n')[0];
+
+            const projChunks = section.split('### PROJECT: ').slice(1);
+            projChunks.forEach(chunk => {
+              const pHeader = chunk.split('\n')[0];
               const projName = pHeader.split(' [PID:')[0].trim();
               const projId = pHeader.match(/\[PID:(.*?)\]/)?.[1] || Math.random().toString();
               nProjects.push({ id: projId, roleId, name: projName });
-              const noteSections = pBlock.split('#### NOTE: ').slice(1);
-              noteSections.forEach(nBlock => {
-                const nLines = nBlock.split('\n');
-                const title = nLines[0].trim();
-                const content = nLines.slice(1).join('\n').split('---')[0].trim();
-                nNotes.push({ id: Math.random().toString(), projectId: projId, title, content });
+              const noteChunks = chunk.split('#### NOTE: ').slice(1);
+              noteChunks.forEach(nChunk => {
+                const nTitle = nChunk.split('\n')[0].trim();
+                const nContent = nChunk.split('\n').slice(1).join('\n').split('---')[0].trim();
+                nNotes.push({ id: Math.random().toString(), projectId: projId, title: nTitle, content: nContent });
               });
             });
           });
           setRoles(nRoles); setProjects(nProjects); setTaskLists(nTaskLists); setTasks(nTasks); setEvents(nEvents); setNotes(nNotes);
-          alert("Import Success.");
+          alert("Atomic Sync Complete.");
         } catch (e) { alert("Parser Error."); }
       };
 
@@ -210,10 +246,18 @@
           let target = fileHandle;
           if (!target) { target = await window.showSaveFilePicker({ suggestedName: 'atomic_workspace.md' }); setFileHandle(target); }
           const w = await target.createWritable(); await w.write(md); await w.close();
-          alert("Synced.");
+          alert("Synced to File.");
         } catch (e) {
           const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([md], {type:'text/markdown'})); a.download='atomic_workspace.md'; a.click();
         }
+      };
+
+      const changeWorkspace = (id) => {
+        setActiveRole(id);
+        setActiveProjectId(null);
+        setActiveTaskListId(null);
+        setActiveNoteId(null);
+        if (window.innerWidth < 768) setSidebarOpen(false);
       };
 
       const handleDelete = () => {
@@ -235,18 +279,18 @@
       const calendarDays = useMemo(() => {
         const y = currentMonth.getFullYear(), m = currentMonth.getMonth();
         const first = new Date(y, m, 1).getDay(), last = new Date(y, m + 1, 0).getDate();
-        const days = [];
-        for (let i = 0; i < first; i++) days.push({ d: null, full: null });
+        const daysArr = [];
+        for (let i = 0; i < first; i++) daysArr.push({ d: null, full: null });
         for (let i = 1; i <= last; i++) {
-          days.push({ d: i, full: `${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}` });
+          daysArr.push({ d: i, full: `${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}` });
         }
-        return days;
+        return daysArr;
       }, [currentMonth]);
 
       return (
         <div className={`app-container ${darkMode ? 'dark text-slate-100' : 'text-slate-900'}`}>
           {modal.show && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 modal-overlay">
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 modal-overlay">
               <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-8 shadow-2xl">
                 {modal.type.startsWith('confirm') ? (
                   <>
@@ -265,18 +309,18 @@
             </div>
           )}
 
-          <aside className={`${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} fixed md:relative md:translate-x-0 z-[150] w-64 h-full bg-slate-900 flex flex-col transition-transform duration-300 shrink-0`}>
+          <aside className={`${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} fixed md:relative md:translate-x-0 z-[100] w-64 h-full bg-slate-900 flex flex-col transition-transform duration-300 shrink-0`}>
             <div className="p-6 flex flex-col items-center">
               <AtomicLogo className="w-16 h-16 shadow-2xl mb-4" />
               <h1 className="text-[10px] font-black text-white uppercase opacity-50 tracking-widest">Atomic Workspace</h1>
             </div>
             <nav className="flex-1 overflow-y-auto custom-scrollbar px-4 space-y-1">
-              <button onClick={()=>{setActiveRole('global'); if(window.innerWidth<768)setSidebarOpen(false); setActiveNoteId(null); setActiveProjectId(null);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeRole==='global'?'bg-white/10 text-white':'text-slate-500 hover:text-slate-300'}`}><Icons.Dashboard /> <span className="text-xs font-bold uppercase">Overview</span></button>
+              <button onClick={()=>changeWorkspace('global')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeRole==='global'?'bg-white/10 text-white':'text-slate-500 hover:text-slate-300'}`}><Icons.Dashboard /> <span className="text-xs font-bold uppercase">Overview</span></button>
               <div className="pt-6 pb-2 text-[9px] font-black text-slate-600 uppercase px-4 text-center">Workspaces</div>
               {roles.filter(r=>r.id!=='global').map(role=>(
                 <div key={role.id} className="group flex items-center">
-                  <button onClick={()=>{setActiveRole(role.id); if(window.innerWidth<768)setSidebarOpen(false); setActiveNoteId(null); setActiveProjectId(null);}} className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeRole===role.id?'bg-white/10 text-white border-l-4':'text-slate-500 hover:text-slate-300'}`} style={{borderLeftColor:activeRole===role.id?role.color:'transparent'}}><Icons.Briefcase /> <span className="text-xs font-bold truncate">{role.name}</span></button>
-                  <button onClick={()=>setModal({show:true,type:'confirm-role',deleteId:role.id})} className="opacity-0 group-hover:opacity-100 p-2 text-rose-500 transition-all"><Icons.X /></button>
+                  <button onClick={()=>changeWorkspace(role.id)} className={`flex-1 flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeRole===role.id?'bg-white/10 text-white border-l-4':'text-slate-500 hover:text-slate-300'}`} style={{borderLeftColor:activeRole===role.id?role.color:'transparent'}}><Icons.Briefcase /> <span className="text-xs font-bold truncate">{role.name}</span></button>
+                  <button onClick={()=>setModal({show:true,type:'confirm-role',deleteId:role.id})} className="opacity-0 group-hover:opacity-100 p-2 text-rose-500"><Icons.X /></button>
                 </div>
               ))}
               <button onClick={()=>setModal({show:true,type:'role'})} className="w-full py-3 text-[10px] font-black text-[#800000] uppercase hover:bg-white/5"><Icons.Plus /> Add Role</button>
@@ -294,7 +338,7 @@
             <header className="h-16 flex items-center justify-between px-4 md:px-8 border-b border-slate-100 dark:border-slate-800 shrink-0 bg-white dark:bg-slate-950">
               <div className="flex items-center gap-4">
                 <button onClick={()=>setSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-400"><Icons.Menu /></button>
-                <h2 className="font-black text-sm uppercase truncate flex items-center gap-2"><div className="w-2 h-2 rounded-full shrink-0" style={{backgroundColor:activeRoleData.color}}></div>{activeRoleData.name}</h2>
+                <h2 className="font-black text-sm uppercase truncate flex items-center gap-2 pr-4"><div className="w-2 h-2 rounded-full shrink-0" style={{backgroundColor:activeRoleData.color}}></div>{activeRoleData.name}</h2>
               </div>
               <div className="hidden md:flex gap-2 bg-slate-50 dark:bg-slate-900 p-1 rounded-2xl">
                 {['dashboard','tasks','calendar','notes'].map(t=>(<button key={t} onClick={()=>setActiveTab(t)} className={`px-6 py-2 text-[10px] font-black rounded-xl transition-all ${activeTab===t?'bg-white dark:bg-slate-800 text-[#800000] shadow-lg scale-105':'text-slate-400'}`}>{t.toUpperCase()}</button>))}
@@ -307,7 +351,7 @@
                 <div className="h-full overflow-y-auto p-4 md:p-12 space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
                     <div className="bg-white dark:bg-slate-900 p-8 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-sm"><h3 className="text-[10px] font-black text-slate-400 uppercase mb-6 tracking-widest">Upcoming</h3><div className="space-y-4">{events.slice(0,5).map(e=>(<div key={e.id} className="text-sm font-bold flex justify-between"><span>{e.title}</span><span className="text-[10px] text-[#800000]">{e.date}</span></div>))}</div></div>
-                    <div className="bg-[#800000] text-white p-8 rounded-[3rem] shadow-xl text-center flex flex-col items-center justify-center"><h3 className="text-2xl font-black mb-4 uppercase">Sync</h3><button onClick={handleDirectSave} className="bg-white text-[#800000] px-8 py-3 rounded-2xl font-black text-xs uppercase hover:scale-105 transition-all">Push to OneDrive</button></div>
+                    <div className="bg-[#800000] text-white p-8 rounded-[3rem] shadow-xl text-center"><h3 className="text-2xl font-black mb-2 uppercase">Sync Desk</h3><button onClick={handleDirectSave} className="bg-white text-[#800000] px-8 py-3 rounded-2xl font-black text-xs uppercase hover:scale-105 transition-all">Push to OneDrive</button></div>
                   </div>
                 </div>
               )}
@@ -315,21 +359,21 @@
               {activeTab==='tasks'&&(
                 <div className="h-full flex flex-col overflow-hidden">
                   <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex gap-2 overflow-x-auto shrink-0 bg-white dark:bg-slate-950">{filteredTaskLists.map(l=>(<div key={l.id} className="flex items-center gap-1 group shrink-0"><button onClick={()=>setActiveTaskListId(l.id)} className={`px-4 py-2 text-[10px] font-black rounded-lg transition-all ${activeTaskListId===l.id?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>{l.name.toUpperCase()}</button><button onClick={()=>setModal({show:true,type:'confirm-tasklist',deleteId:l.id})} className="p-1 text-slate-300 hover:text-rose-500 shrink-0"><Icons.X /></button></div>))}<button onClick={()=>setModal({show:true,type:'tasklist'})} className="p-2 text-[#800000] shrink-0"><Icons.Plus /></button></div>
-                  <div className="flex-1 overflow-y-auto p-4 md:p-12 space-y-6">{activeTaskListId?(<div className="max-w-2xl mx-auto space-y-8"><div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm space-y-4"><input type="text" id="tk-t" placeholder="Add Task..." className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none font-bold text-slate-900 dark:text-white" /><div className="flex gap-2"><input type="date" id="tk-d" className="flex-1 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none text-xs dark:text-white"/><input type="time" id="tk-h" className="w-24 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none text-xs dark:text-white"/><button onClick={()=>{const t=document.getElementById('tk-t'),d=document.getElementById('tk-d'),h=document.getElementById('tk-h'); if(t.value){addTask(t.value, d.value, h.value); t.value='';d.value='';h.value='';}}} className="bg-[#800000] text-white px-6 rounded-xl font-black text-[10px] uppercase">Add</button></div></div><div className="space-y-2">{tasks.filter(t=>t.listId===activeTaskListId).map(t=>(<div key={t.id} className="flex items-center justify-between p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 group shadow-sm transition-all"><div className="flex items-center gap-4 flex-1 truncate"><button onClick={()=>setTasks(tasks.map(x=>x.id===t.id?{...x,completed:!x.completed}:x))} className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center shrink-0 ${t.completed?'bg-emerald-500 border-emerald-500 text-white':'border-slate-200'}`}><Icons.Check /></button><div className="flex flex-col truncate"><span className={`text-sm font-bold truncate ${t.completed?'line-through text-slate-400':''}`}>{t.text}</span>{(t.dueDate||t.dueTime)&&<span className="text-[9px] font-black text-rose-800 flex items-center gap-1 uppercase">{(t.dueDate||t.dueTime)&&<Icons.Clock />} {t.dueDate} {t.dueTime}</span>}</div></div><button onClick={()=>setTasks(tasks.filter(x=>x.id!==t.id))} className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-lg"><Icons.Trash /></button></div>))}</div></div>):<div className="h-full flex items-center justify-center italic text-slate-400">Select a Task List.</div>}</div>
+                  <div className="flex-1 overflow-y-auto p-4 md:p-12 space-y-6">{activeTaskListId?(<div className="max-w-2xl mx-auto space-y-8"><div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm space-y-4"><input type="text" value={newTaskText} onChange={e=>setNewTaskText(e.target.value)} placeholder="Add Task..." className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none font-bold text-slate-900 dark:text-white" /><div className="flex gap-2"><input type="date" value={newTaskDate} onChange={e=>setNewTaskDate(e.target.value)} className="flex-1 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none text-xs dark:text-white"/><input type="time" value={newTaskTime} onChange={e=>setNewTaskTime(e.target.value)} className="w-24 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none text-xs dark:text-white"/><button onClick={()=>{if(newTaskText){setTasks([{id:Date.now().toString(),listId:activeTaskListId,text:newTaskText,completed:false,dueDate:newTaskDate,dueTime:newTaskTime},...tasks]);setNewTaskText('');setNewTaskDate('');setNewTaskTime('');}}} className="bg-[#800000] text-white px-6 rounded-xl font-black text-[10px] uppercase">Add</button></div></div><div className="space-y-2">{tasks.filter(t=>t.listId===activeTaskListId).map(t=>(<div key={t.id} className="flex items-center justify-between p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 group shadow-sm transition-all"><div className="flex items-center gap-4 flex-1 truncate"><button onClick={()=>setTasks(tasks.map(x=>x.id===t.id?{...x,completed:!x.completed}:x))} className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center shrink-0 ${t.completed?'bg-emerald-500 border-emerald-500 text-white':'border-slate-200 dark:border-slate-700'}`}><Icons.Check /></button><div className="flex flex-col truncate"><span className={`text-sm font-bold truncate ${t.completed?'line-through text-slate-400':''}`}>{t.text}</span>{(t.dueDate||t.dueTime)&&<span className="text-[9px] font-black text-rose-800 flex items-center gap-1 uppercase">{(t.dueDate||t.dueTime)&&<Icons.Clock />} {t.dueDate} {t.dueTime}</span>}</div></div><button onClick={()=>setTasks(tasks.filter(x=>x.id!==t.id))} className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-lg"><Icons.Trash /></button></div>))}</div></div>):<div className="h-full flex items-center justify-center italic text-slate-400">Select a Task List.</div>}</div>
                 </div>
               )}
 
               {activeTab==='calendar'&&(
                 <div className="h-full flex flex-col overflow-hidden">
-                  <div className="p-4 md:p-8 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between shrink-0 bg-white dark:bg-slate-950 gap-4"><div className="flex items-center gap-4"><button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(),currentMonth.getMonth()-1,1))} className="p-2"><Icons.ChevronLeft /></button><h3 className="text-sm font-black uppercase w-48 text-center">{currentMonth.toLocaleString('default',{month:'long',year:'numeric'})}</h3><button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(),currentMonth.getMonth()+1,1))} className="p-2"><Icons.ChevronRight /></button></div><div className="flex gap-2"><button onClick={()=>setCalendarView('month')} className={`px-4 py-2 text-[9px] font-black rounded-lg ${calendarView==='month'?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>MONTH</button><button onClick={()=>setCalendarView('agenda')} className={`px-4 py-2 text-[9px] font-black rounded-lg ${calendarView==='agenda'?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>LIST</button><button onClick={()=>{const t=prompt("Title:"),d=prompt("Date:",selectedDate); if(t&&d)setEvents([...events,{id:Date.now().toString(),roleId:activeRole,title:t,date:d}]);}} className="bg-[#800000] text-white px-6 py-2 rounded-xl text-[9px] font-black">NEW</button></div></div>
-                  <div className="flex-1 overflow-y-auto p-4 md:p-8">{calendarView==='month'?(<div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8"><div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm h-fit"><div className="grid grid-cols-7 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>(<div key={d} className="py-4 text-[9px] font-black text-slate-400 uppercase text-center">{d}</div>))}</div><div className="grid grid-cols-7">{calendarDays.map((day,idx)=>(<div key={idx} onClick={()=>day.full&&setSelectedDate(day.full)} className={`min-h-[80px] p-2 border-r border-b border-slate-100 dark:border-slate-800 last:border-r-0 cursor-pointer ${selectedDate===day.full?'bg-rose-50/50 dark:bg-rose-900/10':''}`}>{day.d&&(<> <div className={`text-xs font-black ${selectedDate===day.full?'text-[#800000]':'text-slate-400'}`}>{day.d}</div><div className="flex flex-wrap gap-1 mt-1">{events.filter(e=>e.date===day.full).map(e=>(<div key={e.id} className="w-1.5 h-1.5 rounded-full" style={{backgroundColor:roles.find(r=>r.id===e.roleId)?.color||MAROON}}></div>))}</div></>)}</div>))}</div></div><div><h4 className="text-[10px] font-black uppercase text-[#800000] border-b border-[#800000] pb-2 mb-4 tracking-widest">Plan: {selectedDate}</h4><div className="space-y-4">{events.filter(e=>e.date===selectedDate).map(e=>(<div key={e.id} className="p-5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl shadow-sm text-sm font-bold flex justify-between items-start group transition-all"><div><div>{e.title}</div><div className="text-[9px] uppercase text-slate-400 mt-1">{roles.find(r => r.id === e.roleId)?.name}</div></div><button onClick={()=>setEvents(events.filter(x=>x.id!==e.id))} className="opacity-0 group-hover:opacity-100 p-2 text-rose-500 transition-all"><Icons.Trash /></button></div>))}</div></div></div>):(<div className="max-w-2xl mx-auto space-y-4">{events.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>(<div key={e.id} className="flex items-center gap-6 p-6 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-all group"><div className="text-center w-14 border-r border-slate-100 dark:border-slate-800 pr-4 shrink-0"><div className="text-[10px] font-black text-[#800000] uppercase">{new Date(e.date).toLocaleString('default',{month:'short'})}</div><div className="text-2xl font-black text-slate-900 dark:text-white">{new Date(e.date).getUTCDate()}</div></div><div className="flex-1 truncate font-bold text-sm"><div>{e.title}</div><div className="text-[9px] uppercase text-slate-400">{roles.find(r => r.id === e.roleId)?.name}</div></div><button onClick={()=>setEvents(events.filter(x=>x.id!==e.id))} className="opacity-0 group-hover:opacity-100 p-2 text-rose-500"><Icons.Trash /></button></div>))}</div>)}</div>
+                  <div className="p-4 md:p-8 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row items-center justify-between shrink-0 bg-white dark:bg-slate-950 gap-4"><div className="flex items-center gap-4"><button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(),currentMonth.getMonth()-1, 1))} className="p-2 text-slate-400"><Icons.ChevronLeft /></button><h3 className="text-sm font-black uppercase w-48 text-center">{currentMonth.toLocaleString('default',{month:'long',year:'numeric'})}</h3><button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(),currentMonth.getMonth()+1, 1))} className="p-2 text-slate-400"><Icons.ChevronRight /></button></div><div className="flex gap-2"><button onClick={()=>setCalendarView('month')} className={`px-4 py-2 text-[9px] font-black rounded-lg ${calendarView==='month'?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>MONTH</button><button onClick={()=>setCalendarView('agenda')} className={`px-4 py-2 text-[9px] font-black rounded-lg ${calendarView==='agenda'?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>LIST</button><button onClick={()=>{const t=prompt("Title:"),d=prompt("Date:",selectedDate); if(t&&d)setEvents([...events,{id:Date.now().toString(),roleId:activeRole,title:t,date:d}]);}} className="bg-[#800000] text-white px-6 py-2 rounded-xl text-[9px] font-black">NEW</button></div></div>
+                  <div className="flex-1 overflow-y-auto p-4 md:p-8 pb-24">{calendarView==='month'?(<div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8"><div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm h-fit"><div className="grid grid-cols-7 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>(<div key={d} className="py-4 text-[9px] font-black text-slate-400 uppercase text-center">{d}</div>))}</div><div className="grid grid-cols-7">{calendarDays.map((day,idx)=>(<div key={idx} onClick={()=>day.full&&setSelectedDate(day.full)} className={`min-h-[80px] p-2 border-r border-b border-slate-100 dark:border-slate-800 last:border-r-0 cursor-pointer transition-colors ${selectedDate===day.full?'bg-rose-50/50 dark:bg-rose-900/10' : ''}`}>{day.d&&(<> <div className={`text-xs font-black ${selectedDate===day.full?'text-[#800000]':'text-slate-400'}`}>{day.d}</div><div className="flex flex-wrap gap-1 mt-1">{events.filter(e=>e.date===day.full).map(e=>(<div key={e.id} className="w-1.5 h-1.5 rounded-full" style={{backgroundColor:roles.find(r=>r.id===e.roleId)?.color||MAROON}}></div>))}</div></>)}</div>))}</div></div><div><h4 className="text-[10px] font-black uppercase text-[#800000] border-b border-[#800000] pb-2 mb-4 tracking-widest">Plan: {selectedDate}</h4><div className="space-y-4">{events.filter(e=>e.date===selectedDate).map(e=>(<div key={e.id} className="p-5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl shadow-sm text-sm font-bold flex justify-between items-start group transition-all"><div><div>{e.title}</div><div className="text-[9px] uppercase text-slate-400 mt-1">{roles.find(r => r.id === e.roleId)?.name}</div></div><button onClick={()=>setEvents(events.filter(x=>x.id!==e.id))} className="opacity-0 group-hover:opacity-100 p-2 text-rose-500 transition-all"><Icons.Trash /></button></div>))}</div></div></div>):(<div className="max-w-2xl mx-auto space-y-4">{events.sort((a,b)=>a.date.localeCompare(b.date)).map(e=>(<div key={e.id} className="flex items-center gap-6 p-6 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm transition-all group"><div className="text-center w-14 border-r border-slate-100 dark:border-slate-800 pr-4 shrink-0"><div className="text-[10px] font-black text-[#800000] uppercase">{new Date(e.date).toLocaleString('default',{month:'short'})}</div><div className="text-2xl font-black text-slate-900 dark:text-white">{new Date(e.date).getUTCDate()}</div></div><div className="flex-1 truncate font-bold text-sm"><div>{e.title}</div><div className="text-[9px] uppercase text-slate-400">{roles.find(r => r.id === e.roleId)?.name}</div></div><button onClick={()=>setEvents(events.filter(x=>x.id!==e.id))} className="opacity-0 group-hover:opacity-100 p-2 text-rose-500"><Icons.Trash /></button></div>))}</div>)}</div>
                 </div>
               )}
 
               {activeTab==='notes'&&(
                 <div className="h-full flex flex-col overflow-hidden">
                    <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex gap-2 shrink-0 bg-white dark:bg-slate-950 overflow-x-auto">{filteredProjects.map(p=>(<div key={p.id} className="flex items-center gap-1 group shrink-0"><button onClick={()=>setActiveProjectId(p.id)} className={`px-4 py-2 text-[10px] font-black rounded-lg transition-all ${activeProjectId===p.id?'bg-[#800000] text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>{p.name.toUpperCase()}</button><button onClick={()=>setModal({show:true,type:'confirm-project',deleteId:p.id})} className="p-1 text-slate-300 hover:text-rose-500 shrink-0"><Icons.X /></button></div>))}<button onClick={()=>setModal({show:true,type:'project'})} className="p-2 text-[#800000] shrink-0"><Icons.Plus /></button></div>
-                   <div className="flex-1 flex flex-col md:flex-row overflow-hidden pb-16 md:pb-0">{activeProjectId?(<><div className={`w-full md:w-80 h-full border-r border-slate-100 dark:border-slate-800 p-6 space-y-4 overflow-y-auto ${activeNoteId&&window.innerWidth<768?'hidden':'block'}`}><button onClick={()=>{const id=Date.now().toString();setNotes([{id,projectId:activeProjectId,title:'New Doc',content:'# New Document'},...notes]);setActiveNoteId(id);}} className="w-full flex items-center justify-center gap-2 p-5 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[1.5rem] text-slate-400 font-black text-[10px] uppercase tracking-widest"><Icons.Plus /> New Doc</button>{notes.filter(n=>n.projectId===activeProjectId).map(n=>(<div key={n.id} onClick={()=>setActiveNoteId(n.id)} className={`p-5 rounded-2xl cursor-pointer border transition-all ${activeNoteId===n.id?'bg-white dark:bg-slate-900 border-[#800000] shadow-lg scale-105':'opacity-70 hover:opacity-100 hover:bg-white dark:hover:bg-slate-900 transition-all'}`}><h4 className="text-sm font-black truncate">{n.title}</h4></div>))}</div><div className={`flex-1 h-full bg-white dark:bg-slate-950 p-4 md:p-6 flex flex-col overflow-hidden ${!activeNoteId&&window.innerWidth<768?'hidden':'block'}`}>{activeNoteId?(<><div className="flex items-center justify-between mb-6 border-b pb-6 border-slate-100 dark:border-slate-800 transition-colors"><div className="flex flex-col flex-1 truncate"><input value={notes.find(n => n.id === activeNoteId)?.title || ''} onChange={e => setNotes(notes.map(n => n.id === activeNoteId ? { ...n, title: e.target.value } : n))} className="text-2xl font-black bg-transparent border-none focus:ring-0 w-full dark:text-white truncate" /><div className={`text-[9px] font-black uppercase flex items-center gap-2 ${isAutoSaving ? 'text-emerald-500 auto-save-pulse' : 'text-slate-400'}`}><Icons.Check /> {isAutoSaving ? 'Saving...' : 'Local Saved'}</div></div><div className="flex gap-2 shrink-0"><button onClick={()=>setNoteEditMode(!noteEditMode)} className="p-3 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl">{noteEditMode?<Icons.Eye/>:<Icons.Edit/>}</button><button onClick={()=>{setNotes(notes.filter(n=>n.id!==activeNoteId));setActiveNoteId(null);}} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-xl"><Icons.Trash /></button></div></div><div className="flex-1 overflow-hidden h-full">{noteEditMode?<textarea value={notes.find(n => n.id === activeNoteId)?.content || ''} onChange={e => setNotes(notes.map(n => n.id === activeNoteId ? { ...n, content: e.target.value } : n))} className="w-full h-full p-6 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] border-none focus:ring-0 font-mono text-sm dark:text-slate-200 resize-none custom-scrollbar" />:<div className="p-6 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] h-full overflow-y-auto custom-scrollbar markdown-body" dangerouslySetInnerHTML={{ __html: (typeof marked !== 'undefined') ? marked.parse(notes.find(n => n.id === activeNoteId)?.content || '') : notes.find(n => n.id === activeNoteId)?.content }} /> }</div></>):<div className="flex-1 flex flex-col items-center justify-center opacity-10 italic scale-150"><Icons.Docs /><p className="text-[10px] uppercase font-black tracking-widest mt-2">Select Doc</p></div>}</div></>):<div className="h-full flex-1 flex items-center justify-center text-slate-400 italic">Select a Project.</div>}</div>
+                   <div className="flex-1 flex flex-col md:flex-row overflow-hidden pb-16 md:pb-0">{activeProjectId?(<><div className={`w-full md:w-80 h-full border-r border-slate-100 dark:border-slate-800 p-6 space-y-4 overflow-y-auto ${activeNoteId&&window.innerWidth<768?'hidden':'block'}`}><button onClick={()=>{const id=Date.now().toString();setNotes([{id,projectId:activeProjectId,title:'New Doc',content:'# New Document'},...notes]);setActiveNoteId(id);}} className="w-full flex items-center justify-center gap-2 p-5 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[1.5rem] text-slate-400 font-black text-[10px] uppercase tracking-widest"><Icons.Plus /> New Doc</button>{notes.filter(n=>n.projectId===activeProjectId).map(n=>(<div key={n.id} onClick={()=>setActiveNoteId(n.id)} className={`p-5 rounded-2xl cursor-pointer border transition-all ${activeNoteId===n.id?'bg-white dark:bg-slate-900 border-[#800000] shadow-lg scale-105' : 'opacity-70 hover:opacity-100 hover:bg-white dark:hover:bg-slate-900 transition-all'}`}><h4 className="text-sm font-black truncate">{n.title}</h4></div>))}</div><div className={`flex-1 h-full bg-white dark:bg-slate-950 p-4 md:p-6 flex flex-col overflow-hidden ${!activeNoteId&&window.innerWidth<768?'hidden':'block'}`}>{activeNoteId?(<><div className="flex items-center justify-between mb-6 border-b pb-6 border-slate-100 dark:border-slate-800 transition-colors"><div className="flex flex-col flex-1 truncate"><input value={notes.find(n => n.id === activeNoteId)?.title || ''} onChange={e => setNotes(notes.map(n => n.id === activeNoteId ? { ...n, title: e.target.value } : n))} className="text-2xl font-black bg-transparent border-none focus:ring-0 w-full dark:text-white truncate" /><div className={`text-[9px] font-black uppercase flex items-center gap-2 ${isAutoSaving ? 'text-emerald-500 auto-save-pulse' : 'text-slate-400'}`}><Icons.Check /> {isAutoSaving ? 'Saving...' : 'Synced Local'}</div></div><div className="flex gap-2 shrink-0"><button onClick={()=>setNoteEditMode(!noteEditMode)} className="p-3 text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl">{noteEditMode?<Icons.Eye/>:<Icons.Edit/>}</button><button onClick={()=>{setNotes(notes.filter(n=>n.id!==activeNoteId));setActiveNoteId(null);}} className="p-3 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/10 rounded-xl"><Icons.Trash /></button></div></div><div className="flex-1 overflow-hidden h-full">{noteEditMode?<textarea value={notes.find(n => n.id === activeNoteId)?.content || ''} onChange={e => setNotes(notes.map(n => n.id === activeNoteId ? { ...n, content: e.target.value } : n))} className="w-full h-full p-6 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] border-none focus:ring-0 font-mono text-sm dark:text-slate-200 resize-none custom-scrollbar" />:<div className="p-6 bg-slate-50 dark:bg-slate-900/50 rounded-[2rem] h-full overflow-y-auto custom-scrollbar markdown-body" dangerouslySetInnerHTML={{ __html: (typeof marked !== 'undefined') ? marked.parse(notes.find(n => n.id === activeNoteId)?.content || '') : notes.find(n => n.id === activeNoteId)?.content }} /> }</div></>):<div className="flex-1 flex flex-col items-center justify-center opacity-10 italic scale-150"><Icons.Docs /><p className="text-[10px] font-black mt-2 tracking-widest">Select Doc</p></div>}</div></>):<div className="h-full flex-1 flex items-center justify-center text-slate-400 italic">Select a Project.</div>}</div>
                 </div>
               )}
             </div>
@@ -342,7 +386,8 @@
       );
     };
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
   </script>
 </body>
 </html>
