@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Atomic Workspace</title>
+  
+  <!-- PWA & Mobile Optimization -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#800000">
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
+  <link rel="apple-touch-icon" href="logo.svg">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <script>
+    tailwind.config = { 
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            maroon: {
+              DEFAULT: '#800000',
+              light: '#a52a2a',
+              dark: '#5a0000'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style>
+    .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
+    
+    html, body, #root { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; transition: background-color 0.3s ease; }
+    
+    .modal-overlay { background-color: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px); z-index: 200; }
+    .mobile-nav-safe { padding-bottom: env(safe-area-inset-bottom); }
+    .auto-save-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+    /* Enhanced Markdown Styling */
+    .markdown-body table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; border: 1px solid #e2e8f0; font-size: 0.9rem; }
+    .markdown-body th { background: #f8fafc; padding: 12px; border: 1px solid #e2e8f0; text-align: left; font-weight: 800; }
+    .markdown-body td { padding: 10px; border: 1px solid #e2e8f0; }
+    .dark .markdown-body th { background: #1e293b; border-color: #334155; }
+    .dark .markdown-body td { border-color: #334155; }
+    
+    .markdown-body h1 { font-size: 1.75rem; font-weight: 800; margin-top: 1.5rem; margin-bottom: 1rem; border-bottom: 2px solid #800000; padding-bottom: 0.3rem; }
+    .markdown-body h2 { font-size: 1.4rem; font-weight: 700; margin-top: 1.25rem; margin-bottom: 0.75rem; }
+    .markdown-body h3 { font-size: 1.2rem; font-weight: 700; margin-top: 1rem; margin-bottom: 0.5rem; }
+    .markdown-body p { margin-bottom: 1.25rem; line-height: 1.6; }
+    .markdown-body ul { list-style-type: disc !important; padding-left: 1.5rem !important; margin-bottom: 1.25rem !important; }
+    .markdown-body ol { list-style-type: decimal !important; padding-left: 1.5rem !important; margin-bottom: 1.25rem !important; }
+    .markdown-body li { display: list-item !important; margin-bottom: 0.4rem; }
+    .markdown-body blockquote { border-left: 4px solid #800000; padding-left: 1rem; color: #64748b; font-style: italic; margin-bottom: 1.25rem; }
+    .markdown-body code { background: #f1f5f9; padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
+    .dark .markdown-body code { background: #1e293b; color: #cbd5e1; }
+    .markdown-body pre { background: #f1f5f9; padding: 1rem; border-radius: 0.75rem; overflow-x: auto; margin-bottom: 1.25rem; }
+    .dark .markdown-body pre { background: #0f172a; border: 1px solid #1e293b; }
+
+    /* Mapping Node Styling */
+    .map-node { border-left: 3px solid #800000; padding: 8px 12px; margin: 4px 0; border-radius: 4px; background: rgba(128, 0, 0, 0.05); }
+    .dark .map-node { background: rgba(255, 255, 255, 0.05); border-left-color: #991b1b; }
+    .connector-line { width: 20px; border-top: 2px solid #cbd5e1; margin-top: 15px; flex-shrink: 0; }
+    .dark .connector-line { border-top-color: #334155; }
+  </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+
+    const Icons = {
+      Dashboard: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>,
+      Briefcase: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>,
+      Tasks: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>,
+      Calendar: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+      Docs: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>,
+      Map: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>,
+      Table: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>,
+      Plus: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+      Trash: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>,
+      Sync: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>,
+      Folder: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>,
+      Check: () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>,
+      Clock: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+      Menu: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>,
+      X: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+      ChevronLeft: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>,
+      ChevronRight: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>,
+      Sun: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>,
+      Moon: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>,
+      Eye: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+      Edit: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
+      Cloud: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17.5 19c2.5 0 4.5-2 4.5-4.5 0-2.3-1.8-4.2-4.1-4.5C17.3 6.3 14.1 3.5 10 3.5c-3.1 0-5.8 1.6-7.1 4.1C1.3 8.3 0 10.3 0 12.5 0 15.5 2.5 18 5.5 18h12z"/></svg>
+    };
+
+    const AtomicLogo = ({ className }) => (
+      <svg viewBox="0 0 512 512" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="512" height="512" rx="64" fill="#800000"/>
+        <g stroke="white" strokeWidth="12" opacity="0.8">
+          <ellipse cx="256" cy="220" rx="140" ry="50" /><ellipse cx="256" cy="220" rx="140" ry="50" transform="rotate(60 256 220)" /><ellipse cx="256" cy="220" rx="140" ry="50" transform="rotate(-60 256 220)" />
+        </g>
+        <circle cx="256" cy="220" r="24" fill="white"/><text x="50%" y="420" textAnchor="middle" fill="white" fontSize="64px" fontWeight="bold">AWspace</text>
+      </svg>
+    );
+
+    const STORAGE_KEY = 'awspace_v12_mapping';
+    const MAROON = '#800000';
+
+    const MapView = ({ lines }) => {
+      const buildTree = (lines) => {
+        const root = { children: [], level: -1 };
+        const stack = [root];
+        lines.split('\n').forEach(line => {
+          if (!line.trim()) return;
+          const level = line.search(/\S/) / 2;
+          const content = line.trim().replace(/^[-*]\s*/, '');
+          const node = { content, children: [], level };
+          while (stack[stack.length - 1].level >= level) stack.pop();
+          stack[stack.length - 1].children.push(node);
+          stack.push(node);
+        });
+        return root.children;
+      };
+      const renderNodes = (nodes) => (
+        <div className="flex flex-col gap-2 pl-6">
+          {nodes.map((node, i) => (
+            <div key={i} className="flex items-start">
+              <div className="connector-line"></div>
+              <div className="flex-1">
+                <div className="map-node shadow-sm font-bold text-sm bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-left">{node.content}</div>
+                {node.children.length > 0 && renderNodes(node.children)}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+      return <div className="p-4 overflow-auto">{renderNodes(buildTree(lines))}</div>;
+    };
+
+    const App = () => {
+      const [activeRole, setActiveRole] = useState('global');
+      const [roles, setRoles] = useState([{ id: 'global', name: 'Global Overview', color: '#4b5563' }]);
+      const [projects, setProjects] = useState([]);
+      const [taskLists, setTaskLists] = useState([]);
+      const [tasks, setTasks] = useState([]);
+      const [events, setEvents] = useState([]); 
+      const [notes, setNotes] = useState([]);
+      const [mindmaps, setMindmaps] = useState([]);
+      const [tables, setTables] = useState([]);
+
+      const [activeTab, setActiveTab] = useState('dashboard');
+      const [activeNoteId, setActiveNoteId] = useState(null);
+      const [activeMapId, setActiveMapId] = useState(null);
+      const [activeTableId, setActiveTableId] = useState(null);
+      
+      const [activeProjectId, setActiveProjectId] = useState(null);
+      const [activeTaskListId, setActiveTaskListId] = useState(null);
+      const [activeMapProjectId, setActiveMapProjectId] = useState(null);
+      const [activeTableProjectId, setActiveTableProjectId] = useState(null);
+
+      const [isSidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 768);
+      const [darkMode, setDarkMode] = useState(false);
+      const [calendarView, setCalendarView] = useState('month');
+      const [currentMonth, setCurrentMonth] = useState(new Date());
+      const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+      const [noteEditMode, setNoteEditMode] = useState(true);
+      const [mapEditMode, setMapEditMode] = useState(true);
+      const [isAutoSaving, setIsAutoSaving] = useState(false);
+
+      const [modal, setModal] = useState({ show: false, type: 'input', title: '', placeholder: '', value: '', onAction: null });
+      const [fileHandle, setFileHandle] = useState(null);
+      const [newTaskText, setNewTaskText] = useState('');
+      const [newTaskDate, setNewTaskDate] = useState('');
+      const [tableSize, setTableSize] = useState({ rows: 3, cols: 3 });
+
+      const fileInputRef = useRef(null);
+
+      useEffect(() => {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          try {
+            const d = JSON.parse(saved);
+            if (d.roles) setRoles(d.roles);
+            if (d.projects) setProjects(d.projects);
+            if (d.taskLists) setTaskLists(d.taskLists);
+            if (d.tasks) setTasks(d.tasks);
+            if (d.events) setEvents(d.events);
+            if (d.notes) setNotes(d.notes);
+            if (d.mindmaps) setMindmaps(d.mindmaps);
+            if (d.tables) setTables(d.tables);
+            if (d.darkMode !== undefined) setDarkMode(d.darkMode);
+          } catch (e) { console.error("Initial load failed", e); }
+        }
+      }, []);
+
+      useEffect(() => {
+        setIsAutoSaving(true);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ roles, projects, taskLists, tasks, events, notes, mindmaps, tables, darkMode }));
+        if (darkMode) document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
+        const t = setTimeout(() => setIsAutoSaving(false), 800);
+        return () => clearTimeout(t);
+      }, [roles, projects, taskLists, tasks, events, notes, mindmaps, tables, darkMode]);
+
+      const activeRoleData = roles.find(r => r.id === activeRole) || roles[0];
+      const filteredTaskLists = taskLists.filter(l => l.roleId === activeRole);
+      
+      const notesProjects = projects.filter(p => p.roleId === activeRole && (p.category === 'notes' || !p.category));
+      const mappingProjects = projects.filter(p => p.roleId === activeRole && p.category === 'mapping');
+      const tablesProjects = projects.filter(p => p.roleId === activeRole && p.category === 'tables');
+
+      const overviewTasks = useMemo(() => {
+        const relevantListIds = taskLists
+          .filter(l => activeRole === 'global' || l.roleId === activeRole)
+          .map(l => l.id);
+        return tasks.filter(t => relevantListIds.includes(t.listId));
+      }, [tasks, taskLists, activeRole]);
+
+      const handleImport = async (text, handle = null) => {
+        try {
+          const workspaceSections = text.split('## WORKSPACE: ').slice(1);
+          let nRoles = [{ id: 'global', name: 'Global Overview', color: '#4b5563' }];
+          let nProjects = [], nTaskLists = [], nTasks = [], nEvents = [], nNotes = [], nMaps = [], nTables = [];
+
+          workspaceSections.forEach(section => {
+            const lines = section.split('\n');
+            const roleHeader = lines[0];
+            const roleId = roleHeader.match(/\[ID:(.*?)\]/)?.[1] || Date.now().toString() + Math.random();
+            const roleName = roleHeader.split(' [ID:')[0].trim();
+            nRoles.push({ id: roleId, name: roleName, color: MAROON });
+
+            const calSection = section.split('### CALENDAR')[1]?.split('###')[0];
+            if (calSection) {
+              calSection.split('\n').forEach(line => {
+                const m = line.match(/- (\d{4}-\d{2}-\d{2}): (.*)/);
+                if (m) nEvents.push({ id: Math.random().toString(), roleId, title: m[2].trim(), date: m[1] });
+              });
+            }
+
+            section.split('### LIST: ').slice(1).forEach(chunk => {
+              const listLines = chunk.split('\n');
+              const listHeader = listLines[0];
+              const listId = listHeader.match(/\[LID:(.*?)\]/)?.[1] || Math.random().toString();
+              const listName = listHeader.split(' [LID:')[0].trim();
+              nTaskLists.push({ id: listId, roleId, name: listName });
+              listLines.slice(1).forEach(line => {
+                const tm = line.match(/- \[(x| )\] (.*?) \|D:(.*?)\|T:(.*?)\|/);
+                if (tm) {
+                  nTasks.push({ id: Math.random().toString(), listId, text: tm[2].trim(), completed: tm[1] === 'x', dueDate: tm[3], dueTime: tm[4] });
+                }
+              });
+            });
+
+            section.split('### PROJECT: ').slice(1).forEach(chunk => {
+              const projLines = chunk.split('\n');
+              const projId = projLines[0].match(/\[PID:(.*?)\]/)?.[1] || Math.random().toString();
+              const projName = projLines[0].split(' [PID:')[0].trim();
+              const cat = projLines[0].match(/\[CAT:(.*?)\]/)?.[1] || 'notes';
+              nProjects.push({ id: projId, roleId, name: projName, category: cat });
+              
+              chunk.split('#### NOTE: ').slice(1).forEach(n => {
+                const noteTitle = n.split('\n')[0].trim();
+                const noteContent = n.split('\n').slice(1).join('\n').split('---')[0].trim();
+                nNotes.push({ id: Math.random().toString(), projectId: projId, title: noteTitle, content: noteContent });
+              });
+              chunk.split('#### MINDMAP: ').slice(1).forEach(m => {
+                const mapName = m.split('\n')[0].trim();
+                const mapContent = m.split('\n').slice(1).join('\n').split('---')[0].trim();
+                nMaps.push({ id: Math.random().toString(), roleId, projectId: projId, name: mapName, content: mapContent });
+              });
+              chunk.split('#### TABLE: ').slice(1).forEach(t => {
+                const tableName = t.split('\n')[0].trim();
+                const rls = t.split('\n').slice(1).join('\n').split('---')[0].trim().split('\n').filter(r => r.includes('|') && !r.includes('---'));
+                if (rls.length > 0) {
+                   const headers = rls[0].split('|').map(s => s.trim()).filter(s => s !== '');
+                   const body = rls.slice(1).map(r => r.split('|').map(s => s.trim()).filter(s => s !== ''));
+                   nTables.push({ id: Math.random().toString(), roleId, projectId: projId, name: tableName, headers, rows: body });
+                }
+              });
+            });
+          });
+
+          setRoles(nRoles); setProjects(nProjects); setTaskLists(nTaskLists); 
+          setTasks(nTasks); setEvents(nEvents); setNotes(nNotes); setMindmaps(nMaps); setTables(nTables);
+          if (handle) setFileHandle(handle);
+        } catch (e) { console.error("Parser Error", e); }
+      };
+
+      const handleLoadClick = async () => {
+        if ('showOpenFilePicker' in window) {
+          try {
+            const [handle] = await window.showOpenFilePicker({ types: [{ description: 'Markdown Files', accept: { 'text/markdown': ['.md'] } }], multiple: false });
+            const file = await handle.getFile();
+            const text = await file.text();
+            handleImport(text, handle);
+          } catch (err) { if (err.name !== 'AbortError') console.error(err); }
+        } else {
+          fileInputRef.current.click();
+        }
+      };
+
+      const handleExport = async () => {
+        let md = `# Atomic Workspace Backup - ${new Date().toLocaleDateString()}\n\n`;
+        roles.filter(r => r.id !== 'global').forEach(role => {
+          md += `## WORKSPACE: ${role.name} [ID:${role.id}]\n\n### CALENDAR\n`;
+          events.filter(e => e.roleId === role.id).forEach(e => md += `- ${e.date}: ${e.title}\n`);
+          taskLists.filter(l => l.roleId === role.id).forEach(l => {
+            md += `\n### LIST: ${l.name} [LID:${l.id}]\n`;
+            tasks.filter(t => t.listId === l.id).forEach(t => md += `- [${t.completed ? 'x' : ' '}] ${t.text} |D:${t.dueDate || ''}|T:${t.dueTime || ''}|\n`);
+          });
+          projects.filter(p => p.roleId === role.id).forEach(p => {
+            md += `\n### PROJECT: ${p.name} [PID:${p.id}] [CAT:${p.category || 'notes'}]\n`;
+            if (p.category === 'notes' || !p.category) notes.filter(n => n.projectId === p.id).forEach(n => md += `#### NOTE: ${n.title}\n${n.content}\n---\n`);
+            else if (p.category === 'mapping') mindmaps.filter(m => m.projectId === p.id).forEach(m => md += `#### MINDMAP: ${m.name}\n${m.content}\n---\n`);
+            else if (p.category === 'tables') tables.filter(t => t.projectId === p.id).forEach(t => {
+              md += `#### TABLE: ${t.name}\n| ${t.headers.join(' | ')} |\n| ${t.headers.map(() => '---').join(' | ')} |\n`;
+              t.rows.forEach(r => md += `| ${r.join(' | ')} |\n`);
+              md += `---\n`;
+            });
+          });
+          md += `\n***\n\n`;
+        });
+        if (fileHandle) {
+          try {
+            const writable = await fileHandle.createWritable();
+            await writable.write(md); await writable.close(); return;
+          } catch (err) { console.error("Sync failed", err); }
+        }
+        const blob = new Blob([md], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'atomic_workspace.md'; a.click();
+      };
+
+      const deleteProject = (id) => {
+        setProjects(prev => prev.filter(p => p.id !== id));
+        setNotes(prev => prev.filter(n => n.projectId !== id));
+        setMindmaps(prev => prev.filter(m => m.projectId !== id));
+        setTables(prev => prev.filter(t => t.projectId !== id));
+        if (activeProjectId === id) setActiveProjectId(null);
+        if (activeMapProjectId === id) setActiveMapProjectId(null);
+        if (activeTableProjectId === id) setActiveTableProjectId(null);
+      };
+
+      const deleteRole = (id) => {
+        if (id === 'global') return;
+        setRoles(prev => prev.filter(r => r.id !== id));
+        setProjects(prev => prev.filter(p => p.roleId !== id));
+        setTaskLists(prev => prev.filter(l => l.roleId !== id));
+        setEvents(prev => prev.filter(e => e.roleId !== id));
+        if (activeRole === id) setActiveRole('global');
+      };
+
+      const deleteTaskList = (id) => {
+        setTaskLists(prev => prev.filter(l => l.id !== id));
+        setTasks(prev => prev.filter(t => t.listId !== id));
+        if (activeTaskListId === id) setActiveTaskListId(null);
+      };
+
+      const updateTable = (id, newTable) => setTables(prev => prev.map(t => t.id === id ? newTable : t));
+      const handleEditorTab = (e, setter) => {
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          const start = e.target.selectionStart; const value = e.target.value;
+          const newValue = value.substring(0, start) + "  " + value.substring(e.target.selectionEnd);
+          setter(newValue);
+          setTimeout(() => { e.target.selectionStart = e.target.selectionEnd = start + 2; }, 0);
+        }
+      };
+
+      const calendarDaysArr = useMemo(() => {
+        const y = currentMonth.getFullYear(), m = currentMonth.getMonth();
+        const first = new Date(y, m, 1).getDay(), last = new Date(y, m + 1, 0).getDate();
+        const res = [];
+        for (let i = 0; i < first; i++) res.push({ d: null, full: null });
+        for (let i = 1; i <= last; i++) {
+          res.push({ d: i, full: `${y}-${String(m + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}` });
+        }
+        return res;
+      }, [currentMonth]);
+
+      const activeNote = notes.find(n => n.id === activeNoteId);
+      const activeMap = mindmaps.find(m => m.id === activeMapId);
+      const activeTable = tables.find(t => t.id === activeTableId);
+
+      const triggerModal = (config) => setModal({ show: true, ...config });
+
+      return (
+        <div className={`app-container h-full flex overflow-hidden ${darkMode ? 'dark text-slate-100' : 'text-slate-900'}`}>
+          <input type="file" ref={fileInputRef} onChange={(e) => { if(e.target.files[0]) e.target.files[0].text().then(t => handleImport(t)); }} className="hidden" accept=".md" />
+          
+          {modal.show && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 modal-overlay">
+              <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-3xl p-8 shadow-2xl">
+                <h3 className="text-xl font-black mb-4 uppercase text-slate-900 dark:text-white">{modal.title}</h3>
+                {modal.type === 'input' ? (
+                  <input autoFocus placeholder={modal.placeholder} value={modal.value} onChange={e=>setModal({...modal, value: e.target.value})} onKeyDown={e=>e.key==='Enter' && (modal.onAction(modal.value), setModal({show:false}))} className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-xl p-4 mb-4 dark:text-white focus:ring-2 focus:ring-maroon"/>
+                ) : (
+                  <p className="mb-6 text-slate-500 dark:text-slate-400">This action is permanent.</p>
+                )}
+                {modal.type === 'table' && (
+                  <div className="grid grid-cols-2 gap-4 mb-6 text-left">
+                    <div><label className="text-[9px] font-black uppercase text-slate-400">Rows</label><input type="number" min="1" value={tableSize.rows} onChange={e=>setTableSize({...tableSize, rows: parseInt(e.target.value)})} className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-lg p-2 dark:text-white" /></div>
+                    <div><label className="text-[9px] font-black uppercase text-slate-400">Cols</label><input type="number" min="1" value={tableSize.cols} onChange={e=>setTableSize({...tableSize, cols: parseInt(e.target.value)})} className="w-full bg-slate-100 dark:bg-slate-800 border-none rounded-lg p-2 dark:text-white" /></div>
+                  </div>
+                )}
+                <div className="flex gap-4">
+                  <button onClick={()=>setModal({show:false})} className="flex-1 py-3 font-bold text-slate-400 uppercase text-xs">Cancel</button>
+                  <button onClick={() => { modal.onAction(modal.value); setModal({show:false}); }} className="flex-1 py-3 bg-maroon text-white rounded-xl font-bold uppercase text-xs">{modal.type === 'confirm' ? 'Delete' : 'Confirm'}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <aside className={`${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} fixed md:relative md:translate-x-0 z-[150] w-64 h-full bg-slate-900 flex flex-col transition-transform duration-300 shrink-0`}>
+            <div className="p-6 flex flex-col items-center shrink-0">
+              <AtomicLogo className="w-16 h-16 shadow-2xl mb-4" />
+              <h1 className="text-[10px] font-black text-white uppercase opacity-50 tracking-widest text-center">Atomic Workspace</h1>
+            </div>
+            <nav className="flex-1 overflow-y-auto custom-scrollbar px-4 space-y-1">
+              <button onClick={()=>switchWorkspace('global')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeRole==='global'?'bg-white/10 text-white':'text-slate-500 hover:text-slate-300'}`}><Icons.Dashboard /> <span className="text-xs font-bold uppercase text-left">Overview</span></button>
+              <div className="pt-6 pb-2 text-[9px] font-black text-slate-600 uppercase px-4 text-left">Workspaces</div>
+              {roles.filter(r=>r.id!=='global').map(role=>(
+                <div key={role.id} className="relative group">
+                  <button onClick={()=>switchWorkspace(role.id)} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeRole===role.id?'bg-white/10 text-white border-l-4 shadow-inner':'text-slate-500 hover:text-slate-300'}`} style={{borderLeftColor:activeRole===role.id?role.color:'transparent'}}><Icons.Briefcase /> <span className="text-xs font-bold truncate pr-6">{role.name}</span></button>
+                  <button onClick={(e)=>{e.stopPropagation(); triggerModal({type:'confirm', title:'Delete Role?', onAction:()=>deleteRole(role.id)});}} className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-slate-700 hover:text-rose-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all scale-75"><Icons.Trash /></button>
+                </div>
+              ))}
+              <button onClick={()=>triggerModal({type:'input', title:'New Workspace', placeholder:'Name...', onAction:(v)=>setRoles([...roles,{id:Date.now().toString(), name:v, color:MAROON}])})} className="w-full py-3 text-[10px] font-black text-maroon uppercase hover:bg-white/5 flex items-center justify-center gap-2"><Icons.Plus /> Add Role</button>
+            </nav>
+            <div className="p-4 border-t border-white/5 space-y-2 pb-24 md:pb-4 shrink-0">
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button onClick={handleExport} className="py-3 bg-maroon text-white rounded-xl text-[9px] font-black uppercase flex flex-col items-center"><Icons.Sync /> Save</button>
+                <button onClick={handleLoadClick} className="py-3 bg-slate-800 text-white rounded-xl text-[9px] font-black uppercase flex flex-col items-center"><Icons.Folder /> Load</button>
+              </div>
+              <button onClick={()=>setDarkMode(!darkMode)} className="w-full flex justify-center py-2 text-slate-500">{darkMode?<Icons.Sun/>:<Icons.Moon/>}</button>
+            </div>
+          </aside>
+
+          <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-950 relative pb-20 md:pb-0 overflow-hidden">
+            <header className="h-16 flex items-center justify-between px-4 md:px-8 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <div className="flex items-center gap-4 truncate flex-1 mr-4 text-left">
+                <button onClick={()=>setSidebarOpen(!isSidebarOpen)} className="p-2 text-slate-400 shrink-0"><Icons.Menu /></button>
+                <h2 className="font-black text-sm uppercase truncate flex items-center gap-2"><div className="w-2 h-2 rounded-full shrink-0" style={{backgroundColor:activeRoleData.color}}></div>{activeRoleData.name}</h2>
+              </div>
+              <div className="hidden md:flex gap-2 bg-slate-50 dark:bg-slate-900 p-1 rounded-2xl shrink-0">
+                {['dashboard','tasks','calendar','notes','mapping', 'tables'].map(t=>(<button key={t} onClick={()=>setActiveTab(t)} className={`px-6 py-2 text-[10px] font-black rounded-xl transition-all ${activeTab===t?'bg-white dark:bg-slate-800 text-maroon shadow-lg':'text-slate-400 hover:text-slate-600'}`}>{t === 'mapping' ? 'BRAINSTORM' : t.toUpperCase()}</button>))}
+              </div>
+            </header>
+
+            <div className="flex-1 overflow-hidden relative">
+              {activeTab === 'dashboard' && (
+                <div className="h-full flex items-center justify-center p-12 text-center overflow-auto">
+                  <div className="flex flex-col items-center gap-8 animate-in fade-in duration-700">
+                    <AtomicLogo className="w-48 h-48 md:w-64 md:h-64 drop-shadow-2xl" />
+                    <h1 className="text-2xl font-black uppercase tracking-[0.3em] text-slate-300 dark:text-slate-700">Atomic Workspace</h1>
+                  </div>
+                </div>
+              )}
+              {activeTab === 'tasks' && (
+                <div className="h-full flex flex-col overflow-hidden">
+                  <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex gap-2 overflow-x-auto shrink-0 bg-white dark:bg-slate-950">
+                    <button onClick={()=>setActiveTaskListId(null)} className={`px-4 py-2 text-[10px] font-black rounded-lg transition-all shrink-0 ${activeTaskListId===null?'bg-maroon text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>OVERVIEW</button>
+                    {filteredTaskLists.map(l=>(
+                      <div key={l.id} className="relative group shrink-0">
+                        <button onClick={()=>setActiveTaskListId(l.id)} className={`px-4 py-2 pr-10 text-[10px] font-black rounded-lg transition-all shrink-0 ${activeTaskListId===l.id?'bg-maroon text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>{l.name.toUpperCase()}</button>
+                        <button onClick={(e)=>{e.stopPropagation(); triggerModal({type:'confirm', title:'Delete List?', onAction:()=>deleteTaskList(l.id)});}} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-rose-500 scale-75 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"><Icons.X /></button>
+                      </div>
+                    ))}
+                    <button onClick={()=>triggerModal({type:'input', title:'New List', placeholder:'Name...', onAction:(v)=>setTaskLists([...taskLists,{id:Date.now().toString(), roleId:activeRole, name:v}])})} className="p-2 text-maroon shrink-0"><Icons.Plus /></button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 md:p-12 space-y-6 custom-scrollbar">
+                    {activeTaskListId ? (
+                      <div className="max-w-2xl mx-auto space-y-4">
+                        <div className="bg-white dark:bg-slate-900 p-6 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm space-y-4">
+                           <input type="text" value={newTaskText} onChange={e=>setNewTaskText(e.target.value)} placeholder="Add Task..." className="w-full bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none font-bold dark:text-white" />
+                           <div className="flex gap-2"><input type="date" value={newTaskDate} onChange={e=>setNewTaskDate(e.target.value)} className="flex-1 bg-slate-50 dark:bg-slate-800 p-4 rounded-xl border-none text-xs dark:text-white"/><button onClick={()=>{if(newTaskText){setTasks([{id:Date.now().toString(),listId:activeTaskListId,text:newTaskText,completed:false,dueDate:newTaskDate},...tasks]);setNewTaskText('');setNewTaskDate('');}}} className="bg-maroon text-white px-6 rounded-xl font-black text-[10px] uppercase">Add</button></div>
+                        </div>
+                        {tasks.filter(t=>t.listId===activeTaskListId).map(t=>(
+                          <div key={t.id} className="flex items-center justify-between p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                            <div className="flex items-center gap-4 flex-1 truncate text-left">
+                              <button onClick={()=>setTasks(tasks.map(x=>x.id===t.id?{...x,completed:!x.completed}:x))} className={`w-8 h-8 rounded-xl border-2 flex items-center justify-center shrink-0 ${t.completed?'bg-emerald-500 border-emerald-500 text-white':'border-slate-200'}`}><Icons.Check /></button>
+                              <div className="flex flex-col truncate flex-1 text-left">
+                                <input value={t.text} onChange={e=>setTasks(tasks.map(x=>x.id===t.id?{...x, text:e.target.value}:x))} className={`text-sm font-bold bg-transparent border-none p-0 focus:ring-0 truncate dark:text-white ${t.completed?'line-through text-slate-400':''}`} />
+                                <input type="date" value={t.dueDate||''} onChange={e=>setTasks(tasks.map(x=>x.id===t.id?{...x, dueDate:e.target.value}:x))} className="text-[9px] font-black text-maroon bg-transparent border-none p-0 focus:ring-0 uppercase mt-1 w-full" />
+                              </div>
+                            </div>
+                            <button onClick={()=>setTasks(tasks.filter(x=>x.id!==t.id))} className="p-2 text-rose-500 ml-4 shrink-0"><Icons.Trash /></button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="max-w-2xl mx-auto space-y-4 text-left">
+                        <div className="text-center mb-8">
+                          <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tasks Overview</h3>
+                          <h2 className="text-xl font-black uppercase mt-1 text-slate-900 dark:text-white">{activeRole==='global'?'All Workspaces':activeRoleData.name}</h2>
+                        </div>
+                        {overviewTasks.length > 0 ? overviewTasks.map(t=>(
+                          <div key={t.id} className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                            <div className="flex items-center gap-3 flex-1 truncate">
+                              <button onClick={()=>setTasks(tasks.map(x=>x.id===t.id?{...x,completed:!x.completed}:x))} className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 ${t.completed?'bg-emerald-500 border-emerald-500 text-white':'border-slate-300'}`}>{t.completed && <Icons.Check />}</button>
+                              <div className="flex flex-col flex-1 truncate">
+                                <input value={t.text} onChange={e=>setTasks(tasks.map(x=>x.id===t.id?{...x, text:e.target.value}:x))} className={`text-sm font-bold bg-transparent border-none p-0 focus:ring-0 truncate dark:text-white ${t.completed?'line-through text-slate-400':''}`} />
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 mt-1">
+                                  <input type="date" value={t.dueDate||''} onChange={e=>setTasks(tasks.map(x=>x.id===t.id?{...x, dueDate:e.target.value}:x))} className="text-[8px] font-black text-maroon bg-transparent border-none p-0 focus:ring-0 uppercase w-full sm:w-20" />
+                                  <span className="text-[8px] font-black text-slate-400 uppercase truncate">List: {taskLists.find(l=>l.id===t.listId)?.name || 'General'}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <button onClick={()=>setTasks(tasks.filter(x=>x.id!==t.id))} className="p-2 text-rose-500 ml-4 shrink-0"><Icons.Trash /></button>
+                          </div>
+                        )) : <div className="text-center p-12 text-slate-400 italic text-sm">No active tasks found.</div>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {activeTab === 'calendar' && (
+                <div className="h-full flex flex-col overflow-hidden">
+                  <div className="p-4 md:p-8 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
+                    <div className="flex items-center gap-1 md:gap-4 shrink-0">
+                      <button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(),currentMonth.getMonth()-1, 1))} className="p-1 text-slate-400"><Icons.ChevronLeft /></button>
+                      <h3 className="text-[10px] md:text-sm font-black uppercase w-28 md:w-48 text-center">{currentMonth.toLocaleString('default',{month:'short',year:'numeric'})}</h3>
+                      <button onClick={()=>setCurrentMonth(new Date(currentMonth.getFullYear(),currentMonth.getMonth()+1, 1))} className="p-1 text-slate-400"><Icons.ChevronRight /></button>
+                    </div>
+                    <div className="flex gap-1 md:gap-2">
+                      <button onClick={()=>setCalendarView('month')} className={`px-2 md:px-4 py-2 text-[8px] md:text-[9px] font-black rounded-lg ${calendarView==='month'?'bg-maroon text-white':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>MONTH</button>
+                      <button onClick={()=>setCalendarView('agenda')} className={`px-2 md:px-4 py-2 text-[8px] md:text-[9px] font-black rounded-lg ${calendarView==='agenda'?'bg-maroon text-white':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>LIST</button>
+                      <button onClick={()=>triggerModal({type:'input', title:'New Event', placeholder:'Title...', onAction:(v)=>setEvents([...events,{id:Date.now().toString(), roleId:activeRole, title:v, date:selectedDate}])})} className="bg-maroon text-white px-2 md:px-6 py-2 rounded-xl text-[8px] md:text-[9px] font-black uppercase shrink-0">NEW</button>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
+                    {calendarView==='month'?(
+                      <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-[1.5rem] md:rounded-[2.5rem] border border-slate-100 dark:border-slate-800 shadow-sm h-fit overflow-hidden">
+                          <div className="grid grid-cols-7 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50">
+                            {['S','M','T','W','T','F','S'].map(d=>(<div key={d} className="py-2 md:py-4 text-[8px] md:text-[9px] font-black text-slate-400 uppercase text-center">{d}</div>))}
+                          </div>
+                          <div className="grid grid-cols-7">
+                            {calendarDaysArr.map((day,idx)=>(
+                              <div key={idx} onClick={()=>day.full&&setSelectedDate(day.full)} className={`aspect-square md:aspect-auto md:min-h-[100px] p-1 md:p-2 border-r border-b border-slate-100 dark:border-slate-800 last:border-r-0 cursor-pointer ${selectedDate===day.full?'bg-rose-50/50 dark:bg-rose-900/10':''}`}>
+                                {day.d&&(<> <div className={`text-[10px] md:text-xs font-black ${selectedDate===day.full?'text-maroon':'text-slate-400'}`}>{day.d}</div><div className="flex flex-wrap gap-0.5 mt-0.5 md:mt-1">{events.filter(e=>(activeRole==='global'||e.roleId===activeRole)&&e.date===day.full).map(e=>(<div key={e.id} className="w-1.5 h-1.5 rounded-full" style={{backgroundColor:roles.find(r=>r.id===e.roleId)?.color||MAROON}}></div>))}</div></>)}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-4 text-left">
+                          <h4 className="text-[10px] font-black uppercase text-maroon border-b border-maroon pb-2 tracking-widest">{selectedDate}</h4>
+                          <div className="space-y-3">
+                            {events.filter(e=>(activeRole==='global'||e.roleId===activeRole)&&e.date===selectedDate).map(e=>(
+                              <div key={e.id} className="p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl shadow-sm space-y-2">
+                                <div className="flex justify-between items-start">
+                                  <div className="text-[8px] font-black uppercase text-slate-400 truncate pr-2">WS: {roles.find(r=>r.id===e.roleId)?.name || 'Global'}</div>
+                                  <button onClick={()=>setEvents(events.filter(x=>x.id!==e.id))} className="text-rose-500 scale-75 shrink-0"><Icons.Trash /></button>
+                                </div>
+                                <input value={e.title} onChange={ev=>setEvents(events.map(x=>x.id===e.id?{...x, title:ev.target.value}:x))} className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold dark:text-white" />
+                                <input type="date" value={e.date} onChange={ev=>setEvents(events.map(x=>x.id===e.id?{...x, date:ev.target.value}:x))} className="text-[9px] font-black text-maroon bg-transparent border-none p-0 focus:ring-0 uppercase w-full" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ):(<div className="max-w-2xl mx-auto space-y-4">
+                      {events.filter(e=>activeRole==='global'||e.roleId===activeRole).sort((a,b)=>a.date.localeCompare(b.date)).map(e=>(
+                        <div key={e.id} className="flex items-center gap-4 md:gap-6 p-4 md:p-6 bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-100 dark:border-slate-800 shadow-sm group text-left">
+                          <div className="text-center w-12 md:w-14 border-r pr-2 md:pr-4 shrink-0">
+                            <div className="text-[9px] md:text-[10px] font-black text-maroon uppercase">{new Date(e.date+'T00:00:00').toLocaleString('default',{month:'short'})}</div>
+                            <div className="text-xl md:text-2xl font-black">{new Date(e.date+'T00:00:00').getDate()}</div>
+                          </div>
+                          <div className="flex-1 space-y-1 truncate">
+                            <div className="text-[7px] md:text-[8px] font-black uppercase text-slate-400">WS: {roles.find(r=>r.id===e.roleId)?.name || 'Global'}</div>
+                            <input value={e.title} onChange={ev=>setEvents(events.map(x=>x.id===e.id?{...x, title:ev.target.value}:x))} className="w-full bg-transparent border-none p-0 focus:ring-0 text-sm font-bold dark:text-white truncate" />
+                            <input type="date" value={e.date} onChange={ev=>setEvents(events.map(x=>x.id===e.id?{...x, date:ev.target.value}:x))} className="text-[9px] font-black text-maroon bg-transparent border-none p-0 focus:ring-0 block w-full" />
+                          </div>
+                          <button onClick={()=>setEvents(events.filter(x=>x.id!==e.id))} className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-rose-500 scale-90 shrink-0"><Icons.Trash /></button>
+                        </div>
+                      ))}
+                    </div>)}
+                  </div>
+                </div>
+              )}
+              {['notes','mapping','tables'].includes(activeTab) && (
+                <div className="h-full flex flex-col overflow-hidden">
+                   <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex gap-2 overflow-x-auto shrink-0 bg-white dark:bg-slate-950">
+                    {(activeTab==='notes'?notesProjects:activeTab==='mapping'?mappingProjects:tablesProjects).map(p=>(
+                      <div key={p.id} className="relative group shrink-0">
+                        <button onClick={()=>{if(activeTab==='notes'){setActiveProjectId(p.id);setActiveNoteId(null);}if(activeTab==='mapping'){setActiveMapProjectId(p.id);setActiveMapId(null);}if(activeTab==='tables'){setActiveTableProjectId(p.id);setActiveTableId(null);}}} className={`px-4 py-2 pr-10 text-[10px] font-black rounded-lg transition-all shrink-0 ${(activeTab==='notes'?activeProjectId:activeTab==='mapping'?activeMapProjectId:activeTableProjectId)===p.id?'bg-maroon text-white shadow-md':'bg-slate-100 dark:bg-slate-800 text-slate-400'}`}>{p.name.toUpperCase()}</button>
+                        <button onClick={(e)=>{e.stopPropagation(); triggerModal({type:'confirm', title:'Delete Project?', onAction:()=>deleteProject(p.id)});}} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-rose-500 scale-75 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all"><Icons.X /></button>
+                      </div>
+                    ))}
+                    <button onClick={()=>triggerModal({type:'input', title:'New Project', placeholder:'Name...', onAction:(v)=>setProjects([...projects,{id:Date.now().toString(), roleId:activeRole, name:v, category:activeTab}])})} className="p-2 text-maroon shrink-0"><Icons.Plus /></button>
+                  </div>
+                   <div className="flex-1 flex overflow-hidden">
+                    {((activeTab==='notes'&&activeProjectId)||(activeTab==='mapping'&&activeMapProjectId)||(activeTab==='tables'&&activeTableProjectId))?(
+                      <>
+                        <div className={`${(activeTab==='notes'?activeNoteId:activeTab==='mapping'?activeMapId:activeTableId)?'hidden md:block':'block'} w-full md:w-80 h-full border-r border-slate-100 dark:border-slate-800 p-6 space-y-4 overflow-y-auto bg-white dark:bg-slate-950`}>
+                          <button onClick={()=>{if(activeTab==='notes'){const id=Date.now().toString(); setNotes([{id,projectId:activeProjectId,title:'New Note',content:'# New'},...notes]);setActiveNoteId(id);}if(activeTab==='mapping'){const id=Date.now().toString(); setMindmaps([{id,roleId:activeRole,projectId:activeMapProjectId,name:'New Map',content:'Main'},...mindmaps]);setActiveMapId(id);}if(activeTab==='tables'){triggerModal({type:'table', title:'New Table', placeholder:'Name...', onAction:(v)=>setTables([...tables,{id:Date.now().toString(), roleId:activeRole, projectId:activeTableProjectId, name:v, headers:['Col 1','Col 2'], rows:[['',''],['','']] }])});}}} className="w-full flex items-center justify-center gap-2 p-5 border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-[1.5rem] text-slate-400 font-black text-[10px] uppercase tracking-widest hover:border-maroon hover:text-maroon transition-all shrink-0 text-center"><Icons.Plus /> NEW {activeTab.slice(0,-1).toUpperCase()}</button>
+                          {(activeTab==='notes'?notes.filter(n=>n.projectId===activeProjectId):activeTab==='mapping'?mindmaps.filter(m=>m.projectId===activeMapProjectId):tables.filter(t=>t.projectId===activeTableProjectId)).map(item=>(
+                            <div key={item.id} onClick={()=>{if(activeTab==='notes')setActiveNoteId(item.id);if(activeTab==='mapping')setActiveMapId(item.id);if(activeTab==='tables')setActiveTableId(item.id);}} className={`p-5 rounded-2xl cursor-pointer border transition-all text-left ${(activeTab==='notes'?activeNoteId:activeTab==='mapping'?activeMapId:activeTableId)===item.id?'bg-white dark:bg-slate-900 border-maroon shadow-lg scale-105':'opacity-70'}`}><h4 className="text-sm font-black truncate">{item.name||item.title}</h4></div>
+                          ))}
+                        </div>
+                        <div className={`${(activeTab==='notes'?activeNoteId:activeTab==='mapping'?activeMapId:activeTableId)?'block':'hidden md:block'} flex-1 h-full bg-white dark:bg-slate-950 p-6 flex flex-col overflow-hidden`}>
+                          {(activeTab==='notes'?activeNoteId:activeTab==='mapping'?activeMapId:activeTableId)?(
+                            <div className="flex-1 flex flex-col overflow-hidden p-0 md:p-4 text-left">
+                              <div className="flex items-center justify-between mb-4 gap-4 truncate shrink-0">
+                                <button onClick={()=>{setActiveNoteId(null);setActiveMapId(null);setActiveTableId(null);}} className="md:hidden p-2 -ml-2 text-maroon font-black uppercase text-[10px] flex items-center shrink-0"><Icons.ChevronLeft /> BACK</button>
+                                <input value={(activeTab==='notes'?activeNote?.title:activeTab==='mapping'?activeMap?.name:activeTable?.name)||''} onChange={e=>{const v=e.target.value;if(activeTab==='notes')setNotes(prev=>prev.map(n=>n.id===activeNoteId?{...n,title:v}:n));if(activeTab==='mapping')setMindmaps(prev=>prev.map(m=>m.id===activeMapId?{...m,name:v}:m));if(activeTab==='tables')setTables(prev=>prev.map(t=>t.id===activeTableId?{...t,name:v}:t));}} className="text-xl md:text-2xl font-black bg-transparent border-none focus:ring-0 dark:text-white flex-1 min-w-0" />
+                                <div className="flex gap-1 shrink-0">
+                                  {activeTab!=='tables' && <button onClick={()=>{if(activeTab==='notes')setNoteEditMode(!noteEditMode);if(activeTab==='mapping')setMapEditMode(!mapEditMode);}} className="p-2 text-slate-400 bg-slate-50 dark:bg-slate-800 rounded-lg">{(activeTab==='notes'?noteEditMode:mapEditMode)?<Icons.Eye/>:<Icons.Edit/>}</button>}
+                                  <button onClick={()=>{triggerModal({type:'confirm', title:'Delete Item?', onAction:()=>{if(activeTab==='notes'){setNotes(notes.filter(n=>n.id!==activeNoteId));setActiveNoteId(null);}if(activeTab==='mapping'){setMindmaps(mindmaps.filter(m=>m.id!==activeMapId));setActiveMapId(null);}if(activeTab==='tables'){setTables(tables.filter(t=>t.id!==activeTableId));setActiveTableId(null);}}});}} className="p-2 text-rose-500 bg-slate-50 dark:bg-slate-800 rounded-lg shrink-0"><Icons.Trash /></button>
+                                </div>
+                              </div>
+                              <div className="flex-1 overflow-hidden">
+                                {activeTab==='notes' && (noteEditMode?(<textarea value={activeNote?.content||''} onKeyDown={e=>handleEditorTab(e,v=>setNotes(notes.map(n=>n.id===activeNoteId?{...n,content:v}:n)))} onChange={e=>setNotes(notes.map(n=>n.id===activeNoteId?{...n,content:e.target.value}:n))} className="w-full h-full p-4 md:p-6 bg-slate-50 dark:bg-slate-900/50 rounded-2xl md:rounded-[2rem] border-none focus:ring-0 font-mono text-sm resize-none custom-scrollbar" />):(<div className="p-4 md:p-6 bg-slate-50 dark:bg-slate-900/50 rounded-2xl md:rounded-[2rem] h-full overflow-y-auto custom-scrollbar markdown-body text-left" dangerouslySetInnerHTML={{__html:marked.parse(activeNote?.content||'')}} />))}
+                                {activeTab==='mapping' && (mapEditMode?(<textarea value={activeMap?.content||''} onKeyDown={e=>handleEditorTab(e,v=>setMindmaps(mindmaps.map(m=>m.id===activeMapId?{...m,content:v}:m)))} onChange={e=>setMindmaps(mindmaps.map(m=>m.id===activeMapId?{...m,content:e.target.value}:m))} className="w-full h-full p-4 md:p-6 bg-slate-50 dark:bg-slate-900/50 rounded-2xl md:rounded-[2rem] border-none focus:ring-0 font-mono text-sm resize-none custom-scrollbar shadow-sm" placeholder="Outline your thoughts here..."/>) : (<div className="bg-slate-50 dark:bg-slate-900/50 rounded-2xl md:rounded-[2rem] h-full overflow-auto custom-scrollbar shadow-sm"><MapView lines={activeMap?.content||''} /></div>))}
+                                {activeTab==='tables' && activeTable && (
+                                  <div className="h-full flex flex-col md:flex-row gap-4 overflow-hidden">
+                                    <div className="w-full md:w-64 overflow-y-auto custom-scrollbar p-3 bg-slate-50 dark:bg-slate-900/30 rounded-2xl shrink-0">
+                                      <div className="flex gap-2 mb-4"><button onClick={()=>{const nh=[...activeTable.headers,`Col ${activeTable.headers.length+1}`];const nr=activeTable.rows.map(r=>[...r,'']);updateTable(activeTable.id,{...activeTable,headers:nh,rows:nr})}} className="flex-1 py-1.5 bg-slate-200 dark:bg-slate-700 text-[8px] font-black uppercase rounded-md">+ COL</button><button onClick={()=>{const nr=[...activeTable.rows,activeTable.headers.map(()=>'')];updateTable(activeTable.id,{...activeTable,rows:nr})}} className="flex-1 py-1.5 bg-maroon text-white text-[8px] font-black uppercase rounded-md">+ ROW</button></div>
+                                      {activeTable.headers.map((h,i)=>(<div key={i} className="mb-3 text-left"><input value={h} onChange={e=>{const nh=[...activeTable.headers];nh[i]=e.target.value;updateTable(activeTable.id,{...activeTable,headers:nh})}} className="text-[8px] font-black text-maroon uppercase bg-transparent border-none p-0 mb-1 w-full text-left" /><input value={ (activeTable.rows && activeTable.rows.length > 0) ? (activeTable.rows[activeTable.rows.length-1][i]||'') : ''} onChange={e=>{const nr=[...activeTable.rows]; if(nr.length > 0) { nr[nr.length-1][i]=e.target.value; updateTable(activeTable.id,{...activeTable,rows:nr}); }}} className="w-full p-2 bg-white dark:bg-slate-800 rounded-lg text-xs border-none text-left" /></div>))}
+                                    </div>
+                                    <div className="flex-1 overflow-auto custom-scrollbar bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm markdown-body min-w-full text-left">
+                                      <table><thead><tr>{activeTable.headers.map((h,i)=><th key={i}>{h}</th>)}</tr></thead><tbody>{activeTable.rows.map((r,ri)=><tr key={ri}>{r.map((c,ci)=><td key={ci}><input value={c} onChange={e=>{const nr=[...activeTable.rows];nr[ri][ci]=e.target.value;updateTable(activeTable.id,{...activeTable,rows:nr})}} className="w-full bg-transparent border-none focus:ring-0 text-sm dark:text-slate-200" /></td>)}</tr>)}</tbody></table>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ):<div className="flex-1 flex items-center justify-center opacity-10 italic text-sm px-6 text-center">Select an item to edit.</div>}
+                        </div>
+                      </>
+                    ):<div className="h-full flex-1 flex items-center justify-center text-slate-400 italic text-sm text-center px-6 uppercase tracking-widest font-black">Select a Project folder to begin.</div>}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="fixed bottom-0 left-0 right-0 md:hidden h-20 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 z-[90] mobile-nav-safe shrink-0">
+               {[{id:'dashboard',icon:<Icons.Dashboard/>,l:'Home'},{id:'tasks',icon:<Icons.Tasks/>,l:'Tasks'},{id:'calendar',icon:<Icons.Calendar/>,l:'Plan'},{id:'notes',icon:<Icons.Docs/>,l:'Docs'},{id:'mapping',icon:<Icons.Map/>,l:'Maps'},{id:'tables',icon:<Icons.Table/>,l:'Tables'}].map(tab=>(<button key={tab.id} onClick={()=>setActiveTab(tab.id)} className={`flex flex-col items-center justify-center flex-1 py-2 transition-all ${activeTab===tab.id?'text-maroon scale-110':'text-slate-300'}`}>{tab.icon} <span className="text-[9px] font-black uppercase mt-1 tracking-tighter">{tab.l}</span></button>))}
+            </div>
+          </main>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
