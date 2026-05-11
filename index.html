@@ -227,30 +227,77 @@
 
       const activeNote = notes.find(n => n.id === activeNoteId);
 
-      const handleDirectSave = async () => {
+            const handleDirectSave = async () => {
+        // Build markdown in the exact format parseAndImport expects
         let md = `# Atomic Workspace Backup - ${new Date().toLocaleDateString()}\n\n`;
-        roles.filter(r => r.id !== 'global').forEach(role => {
-          md += `*** WORKSPACE ***\n${role.name} (ID:${role.id})\n`;
-          md += `## CALENDAR\n`;
-          events.filter(e => e.roleId === role.id).forEach(e => md += `- ${e.date} ${e.title}\n`);
-          taskLists.filter(l => l.roleId === role.id).forEach(l => {
-            md += `## TASK LIST\n${l.name} (LID:${l.id})\n`;
-            tasks.filter(t => t.listId === l.id).forEach(t => md += `- ${t.completed ? '[x]' : '[ ]'} ${t.text}${t.dueDate ? ` D:${t.dueDate}` : ''}${t.dueTime ? ` T:${t.dueTime}` : ''}\n`);
+
+        roles
+          .filter(r => r.id !== 'global')
+          .forEach(role => {
+            // Workspace header
+            md += `*** WORKSPACE ***\n${role.name} (ID:${role.id})\n`;
+
+            // Calendar
+            md += `## CALENDAR\n`;
+            events
+              .filter(e => e.roleId === role.id)
+              .forEach(e => {
+                md += `- ${e.date} ${e.title}\n`;
+              });
+
+            // Task lists and tasks
+            taskLists
+              .filter(l => l.roleId === role.id)
+              .forEach(l => {
+                md += `## TASK LIST\n${l.name} (LID:${l.id})\n`;
+                tasks
+                  .filter(t => t.listId === l.id)
+                  .forEach(t => {
+                    const status = t.completed ? '[x]' : '[ ]';
+                    const datePart = t.dueDate ? ` D:${t.dueDate}` : '';
+                    const timePart = t.dueTime ? ` T:${t.dueTime}` : '';
+                    md += `- ${status} ${t.text}${datePart}${timePart}\n`;
+                  });
+              });
+
+            // Projects and notes
+            projects
+              .filter(p => p.roleId === role.id)
+              .forEach(p => {
+                md += `## PROJECT\n${p.name} (PID:${p.id})\n`;
+                notes
+                  .filter(n => n.projectId === p.id)
+                  .forEach(n => {
+                    const title = (n.title || '').trim() || 'Untitled Note';
+                    const content = (n.content || '').trim();
+                    md += `## NOTE\n${title}\n`;
+                    if (content) {
+                      md += `${content}\n`;
+                    }
+                    md += `---\n`;
+                  });
+              });
+
+            // Mindmaps
+            mindmaps
+              .filter(m => m.roleId === role.id)
+              .forEach(m => {
+                const name = (m.name || '').trim() || 'Untitled Map';
+                const content = (m.content || '').trim();
+                md += `## MINDMAP\n${name} (MID:${m.id})\n`;
+                if (content) {
+                  md += `${content}\n`;
+                }
+                md += `---\n`;
+              });
           });
-          projects.filter(p => p.roleId === role.id).forEach(p => {
-            md += `## PROJECT\n${p.name} (PID:${p.id})\n`;
-            notes.filter(n => n.projectId === p.id).forEach(n => {
-              md += `## NOTE\n${n.title}\n${n.content}\n---\n`;
-            });
-          });
-          mindmaps.filter(m => m.roleId === role.id).forEach(m => {
-            md += `## MINDMAP\n${m.name} (MID:${m.id})\n${m.content}\n---\n`;
-          });
-        });
+
         try {
           let target = fileHandle;
           if (!target) {
-            const handles = await window.showSaveFilePicker({ suggestedName: 'atomic_workspace.md' });
+            const handles = await window.showSaveFilePicker({
+              suggestedName: 'atomic_workspace.md'
+            });
             target = handles;
             setFileHandle(target);
           }
@@ -260,7 +307,9 @@
           alert('Synced.');
         } catch (e) {
           const a = document.createElement('a');
-          a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown' }));
+          a.href = URL.createObjectURL(
+            new Blob([md], { type: 'text/markdown' })
+          );
           a.download = 'atomic_workspace.md';
           a.click();
         }
